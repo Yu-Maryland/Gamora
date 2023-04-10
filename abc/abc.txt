@@ -1,0 +1,41 @@
+abc 01> gen -N 2 -m mult2.blif
+Hierarchy reader flattened 10 instances of logic boxes and left 0 black boxes.
+abc 02> st
+abc 03> ps
+Multi2                        : i/o =    4/    4  lat =    0  and =     10  lev =  4
+abc 03> show
+abc 03> gv: Unable to open the display.
+
+abc 03> read 7nm_lvt_ff.lib 
+Library "ASAP7_7nm_LVT_FF" from "7nm_lvt_ff.lib" has 159 cells (26 skipped: 23 seq; 0 tri-state; 3 no func; 0 dont_use).  Time =     0.86 sec
+Warning: Detected 2 multi-output gates (for example, "FAx1_ASAP7_75t_L").
+abc 03> st
+abc 04> ps
+Multi2                        : i/o =    4/    4  lat =    0  and =     10  lev =  4
+abc 04> map
+abc 05> st
+abc 06> ps
+Multi2                        : i/o =    4/    4  lat =    0  and =     12  lev =  4
+abc 06> show 
+abc 06> gv: Unable to open the display.
+
+abc 06> read mult2.blif;&get;&atree
+Hierarchy reader flattened 10 instances of logic boxes and left 0 black boxes.
+AIG nodes = 10.  Cuts = 38.  Cuts/Node = 3.80.  Ints/Node = 20.30.
+Adders = 4.  Total cuts = 12.  Hashed cuts = 8.  Hashed/Adders = 2.00.
+Collected 2 boxes.
+Detected 2 FAs/HAs. Roots = 4. Leaves = 4. Nodes = 6. Adds = 2. Time =     0.00 sec
+Remaining cones:  Count = 4.  SuppMax = 2.  ConeMax = 1.
+On top of 4 COs, created 0 new adder outputs.
+abc 07> read mult2.blif;map;&get;&atree
+Hierarchy reader flattened 10 instances of logic boxes and left 0 black boxes.
+Abc_NtkBalance: 6
+Warning: The network was strashed and balanced before mapping.
+AIG nodes = 12.  Cuts = 34.  Cuts/Node = 2.83.  Ints/Node = 15.25.
+Adders = 0.  Total cuts = 12.  Hashed cuts = 12.  Hashed/Adders = inf.
+Collected 0 boxes.
+Detected 0 FAs/HAs. Roots = 4. Leaves = 4. Nodes = 0. Adds = 0. Time =     0.00 sec
+Remaining cones:  Count = 4.  SuppMax = 4.  ConeMax = 7.
+On top of 4 COs, created 0 new adder outputs.
+abc 09> 
+

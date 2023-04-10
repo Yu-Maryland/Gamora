@@ -1,0 +1,579 @@
+/**CFile****************************************************************
+
+  FileName    [sclDnsize.c]
+
+  SystemName  [ABC: Logic synthesis and verification system.]
+
+  PackageName [Standard-cell library representation.]
+
+  Synopsis    [Selective decrease of gate sizes.]
+
+  Author      [Alan Mishchenko, Niklas Een]
+  
+  Affiliation [UC Berkeley]
+
+  Date        [Ver. 1.0. Started - August 24, 2012.]
+
+  Revision    [$Id: sclDnsize.c,v 1.0 2012/08/24 00:00:00 alanmi Exp $]
+
+***********************************************************************/
+
+#include "sclSize.h"
+
+ABC_NAMESPACE_IMPL_START
+
+
+////////////////////////////////////////////////////////////////////////
+///                        DECLARATIONS                              ///
+////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////
+///                     FUNCTION DEFINITIONS                         ///
+////////////////////////////////////////////////////////////////////////
+
+/**Function*************************************************************
+
+  Synopsis    [Find the array of nodes to be updated.]
+
+  Description []
+               
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+void Abc_SclFindWindow( Abc_Obj_t * pPivot, Vec_Int_t ** pvNodes, Vec_Int_t ** pvEvals )
+{
+    Abc_Ntk_t * p = Abc_ObjNtk(pPivot);
+    Abc_Obj_t * pObj, * pNext, * pNext2;
+    Vec_Int_t * vNodes = *pvNodes;
+    Vec_Int_t * vEvals = *pvEvals;
+    int i, k;
+    assert( Abc_ObjIsNode(pPivot) );
+    // collect fanins, node, and fanouts
+    Vec_IntClear( vNodes );
+    Abc_ObjForEachFanin( pPivot, pNext, i )
+//        if ( Abc_ObjIsNode(pNext) && Abc_ObjFaninNum(pNext) > 0 )
+        if ( Abc_ObjIsCi(pNext) || Abc_ObjFaninNum(pNext) > 0 )
+            Vec_IntPush( vNodes, Abc_ObjId(pNext) );
+    Vec_IntPush( vNodes, Abc_ObjId(pPivot) );
+    Abc_ObjForEachFanout( pPivot, pNext, i )
+        if ( Abc_ObjIsNode(pNext) )
+        {
+            Vec_IntPush( vNodes, Abc_ObjId(pNext) );
+            Abc_ObjForEachFanout( pNext, pNext2, k )
+                if ( Abc_ObjIsNode(pNext2) )
+                    Vec_IntPush( vNodes, Abc_ObjId(pNext2) );
+        }
+    Vec_IntUniqify( vNodes );
+    // label nodes
+    Abc_NtkForEachObjVec( vNodes, p, pObj, i )
+    {
+        assert( pObj->fMarkB == 0 );
+        pObj->fMarkB = 1;
+    }
+    // collect nodes visible from the critical paths
+    Vec_IntClear( vEvals );
+    Abc_NtkForEachObjVec( vNodes, p, pObj, i )
+        Abc_ObjForEachFanout( pObj, pNext, k )
+            if ( !pNext->fMarkB )
+            {
+                assert( pObj->fMarkB );
+                Vec_IntPush( vEvals, Abc_ObjId(pObj) );
+                break;
+            }
+    assert( Vec_IntSize(vEvals) > 0 );
+    // label nodes
+    Abc_NtkForEachObjVec( vNodes, p, pObj, i )
+        pObj->fMarkB = 0;
+}
+
+/**Function*************************************************************
+
+  Synopsis    [Returns 1 if the node can be improved.]
+
+  Description [Updated the node to have a new gate.]
+               
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+int Abc_SclCheckImprovement( SC_Man * p, Abc_Obj_t * pObj, Vec_Int_t * vNodes, Vec_Int_t * vEvals, int Notches, int DelayGap )
+{
+    Abc_Obj_t * pTemp;
+    SC_Cell * pCellOld, * pCellNew;
+    float dGain, dGainBest;
+    int i, k, gateBest;
+    abctime clk;
+clk = Abc_Clock();
+    //printf( "%d -> %d\n", Vec_IntSize(vNodes), Vec_IntSize(vEvals) );
+    // save old gate, timing, fanin load
+    pCellOld = Abc_SclObjCell( pObj );
+    Abc_SclConeStore( p, vNodes );
+    Abc_SclEvalStore( p, vEvals );
+    Abc_SclLoadStore( p, pObj );
+    // try different gate sizes for this node
+    gateBest = -1;
+    dGainBest = -DelayGap;
+    SC_RingForEachCellRev( pCellOld, pCellNew, i )
+    {
+        if ( pCellNew->area >= pCellOld->area )
+            continue;
+        if ( i > Notches )
+            break;
+        // set new cell
+        Abc_SclObjSetCell( pObj, pCellNew );
+        Abc_SclUpdateLoad( p, pObj, pCellOld, pCellNew );
+        // recompute timing
+        Abc_SclTimeCone( p, vNodes );
+        // set old cell
+        Abc_SclObjSetCell( pObj, pCellOld );
+        Abc_SclLoadRestore( p, pObj );
+        // evaluate gain
+        dGain = Abc_SclEvalPerformLegal( p, vEvals, p->MaxDelay0 );
+        if ( dGain == -1 )
+            continue;
+        // save best gain
+        if ( dGainBest < dGain )
+        {
+            dGainBest = dGain;
+            gateBest = pCellNew->Id;
+        }
+    } 
+    // put back old cell and timing
+    Abc_SclObjSetCell( pObj, pCellOld );
+    Abc_SclConeRestore( p, vNodes );
+p->timeSize += Abc_Clock() - clk;
+    if ( gateBest >= 0 )
+    {
+        pCellNew = SC_LibCell( p->pLib, gateBest );
+        Abc_SclObjSetCell( pObj, pCellNew );
+        p->SumArea += pCellNew->area - pCellOld->area;
+//        printf( "%f   %f -> %f\n", pCellNew->area - pCellOld->area, p->SumArea - (pCellNew->area - pCellOld->area), p->SumArea );
+        //printf( "%6d  %20s -> %20s  %f -> %f\n", Abc_ObjId(pObj), pCellOld->pName, pCellNew->pName, pCellOld->area, pCellNew->area );
+        // mark used nodes with the current trav ID
+        Abc_NtkForEachObjVec( vNodes, p->pNtk, pTemp, k )
+            Abc_NodeSetTravIdCurrent( pTemp );
+        // update load and timing...
+        Abc_SclUpdateLoad( p, pObj, pCellOld, pCellNew );
+        Abc_SclTimeIncInsert( p, pObj );
+        return 1;
+    }
+    return 0;
+}
+
+/**Function*************************************************************
+
+  Synopsis    [Collect nodes by area.]
+
+  Description []
+               
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+void Abc_NtkCollectNodesByArea( SC_Man * p, Abc_Ntk_t * pNtk )
+{
+    Abc_Obj_t * pObj;
+    int i;
+    assert( Vec_QueSize(p->vNodeByGain) == 0 );
+    Vec_QueClear( p->vNodeByGain );
+    Abc_NtkForEachNode( pNtk, pObj, i )
+    if ( Abc_ObjFaninNum(pObj) > 0 )
+    {
+        Vec_FltWriteEntry( p->vNode2Gain, Abc_ObjId(pObj), Abc_SclObjCell(pObj)->area );
+        Vec_QuePush( p->vNodeByGain, Abc_ObjId(pObj) );
+    }
+}
+int Abc_SclCheckOverlap( Abc_Ntk_t * pNtk, Vec_Int_t * vNodes )
+{
+    Abc_Obj_t * pObj;
+    int i;
+    Abc_NtkForEachObjVec( vNodes, pNtk, pObj, i )
+        if ( Abc_NodeIsTravIdCurrent(pObj) )
+            return 1;
+    return 0;
+}
+
+/**Function*************************************************************
+
+  Synopsis    [Print cumulative statistics.]
+
+  Description []
+               
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+void Abc_SclDnsizePrint( SC_Man * p, int Iter, int nAttempts, int nOverlaps, int nChanges, int fVerbose )
+{
+    if ( Iter == -1 )
+        printf( "Total : " );
+    else
+        printf( "%5d : ",    Iter );
+    printf( "Try =%6d  ",    nAttempts );
+    printf( "Over =%6d  ",   nOverlaps );
+    printf( "Fail =%6d  ",   nAttempts-nOverlaps-nChanges );
+    printf( "Win =%6d  ",    nChanges );
+    printf( "A: " );
+    printf( "%.2f ",         p->SumArea );
+    printf( "(%+5.1f %%)  ", 100.0 * (p->SumArea - p->SumArea0)/ p->SumArea0 );
+    printf( "D: " );
+    printf( "%.2f ps ",      p->MaxDelay );
+    printf( "(%+5.1f %%)  ", 100.0 * (p->MaxDelay - p->MaxDelay0)/ p->MaxDelay0 );
+    printf( "%8.2f sec    ", 1.0*(Abc_Clock() - p->timeTotal)/(CLOCKS_PER_SEC) );
+    printf( "%c", fVerbose ? '\n' : '\r' );
+}
+
+/**Function*************************************************************
+
+  Synopsis    []
+
+  Description []
+               
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+void Abc_SclEdgelistCunxi( Abc_Ntk_t * pNtk , char * edgelistFile)
+{
+	FILE * f_el;
+	f_el = fopen (edgelistFile, "w");
+	Abc_Obj_t * pObj, * pFanin;
+	int i, fanin_i;
+	Abc_NtkForEachNode( pNtk, pObj, i ){
+		Abc_ObjForEachFanin(pObj, pFanin, fanin_i){
+			fprintf(f_el, "%d %d\n", Abc_ObjId(pFanin)-1, Abc_ObjId(pObj)-1 ); // networkx starts from ID=0 where ABC starts from 1
+		}
+	}
+	// abc primary outputs has an additional "gate" connected (dummy buffer)
+	Abc_NtkForEachPo(pNtk, pObj, i ){
+		Abc_ObjForEachFanin(pObj, pFanin, fanin_i){
+			fprintf(f_el, "%d %d\n", Abc_ObjId(pFanin)-1, Abc_ObjId(pObj)-1 ); // networkx starts from ID=0 where ABC starts from 1
+		}
+	}
+	
+	return ;
+}
+int Abc_SclMaxSizeCell(SC_Lib * p){
+    int k,  nLength;  
+    SC_Cell  * pRepr;
+    nLength = 0;
+    SC_LibForEachCellClass( p, pRepr, k )
+    	nLength = Abc_MaxInt( nLength, Abc_SclClassCellNum(pRepr)  );
+    return nLength;
+}
+char * Abc_SclOnehotClass(int maxsize, int size)
+{
+    char * onehot;
+    const char *zero = "0";
+    const char *one = "1";
+    const char *comma = ",";
+    const char *empty = "";
+    onehot = malloc(maxsize+1+maxsize-1); // maxsize digits + (maxsize - 1) commas + 1
+    strcpy(onehot, empty);
+    for (int i=0; i<maxsize; i++){
+	if (i == size-1){
+		strcat(onehot, one); 
+		if (i!=maxsize-1)
+			strcat(onehot, comma); 
+	}
+	else{
+		strcat(onehot, zero); 
+		if (i!=maxsize-1)
+			strcat(onehot, comma); 
+	}
+    }
+/*
+    if (size != 0)
+	strcat(onehot, one);
+    else
+	strcat(onehot, zero); 	
+*/
+    return onehot;
+}
+void Abc_SclDnsizePerformInt( SC_Lib * pLib, Abc_Ntk_t * pNtk, SC_SizePars * pPars )
+{
+    SC_Man * p;
+    Abc_Obj_t * pObj;
+    Vec_Int_t * vNodes, * vEvals, * vTryLater, * vNodesOrderOld, * vNodesOrderImproved; 
+    abctime clk, nRuntimeLimit = pPars->TimeOut ? pPars->TimeOut * CLOCKS_PER_SEC + Abc_Clock() : 0;
+    int i, k;
+    int print_debug = 0;
+    if ( pPars->fVerbose )
+    {
+        printf( "Parameters: " );
+        printf( "Iters =%5d.  ",          pPars->nIters    );
+        printf( "UseDept =%2d. ",         pPars->fUseDept  );
+        printf( "UseWL =%2d. ",           pPars->fUseWireLoads );
+        printf( "Target =%5d ps. ",       pPars->DelayUser );
+        printf( "DelayGap =%3d ps. ",     pPars->DelayGap );
+        printf( "Timeout =%4d sec",       pPars->TimeOut   );
+        printf( "\n" );
+    }
+
+    // prepare the manager; collect init stats
+    p = Abc_SclManStart( pLib, pNtk, pPars->fUseWireLoads, pPars->fUseDept, pPars->DelayUser, pPars->BuffTreeEst );
+    p->timeTotal  = Abc_Clock();
+    assert( p->vGatesBest == NULL );
+    p->vGatesBest = Vec_IntDup( p->pNtk->vGates );
+
+    // cunxi
+    int maxSize = 0;
+    maxSize = Abc_SclMaxSizeCell(pLib);
+    printf("Upsizing dataset generation\n -- max size = %d\n -- max #nodes = %d\n -- PI = %d\n -- PO = %d\n", 
+			maxSize, Abc_NtkObjNumMax(pNtk), Abc_NtkPiNum(pNtk), Abc_NtkPiNum(pNtk));
+    Abc_Ntk_t * pNtkOld_Cunxi;
+    pNtkOld_Cunxi = p->pNtk;
+    int cunxi_i;
+    Abc_Obj_t * pCunxi_Obj;
+    SC_Cell * pCellCunxi;
+    vNodesOrderOld = Vec_IntAlloc( 1000 );
+    vNodesOrderImproved = Vec_IntAlloc( 1000 );
+    Vec_Int_t * vNodesIDOld, * vNodesIDImproved; 
+    vNodesIDOld = Vec_IntAlloc( 1000 );
+    vNodesIDImproved = Vec_IntAlloc( 1000 );
+    Abc_NtkForEachNode( pNtkOld_Cunxi, pCunxi_Obj, cunxi_i ){
+	pCellCunxi = Abc_SclObjCell( pCunxi_Obj );
+	/*
+        printf("%s\n", SC_CellPinOutFunc(pCellCunxi, 0));
+	Vec_Ptr_t * vNames;
+        Vec_Wrd_t * vFunc;
+        vNames = Vec_PtrAlloc( pCellCunxi->n_inputs );
+	int n;
+	SC_Pin * pPin = SC_CellPin(pCellCunxi, 0);
+        SC_CellForEachPinIn( pCellCunxi, pPin, n )
+        	Vec_PtrPush( vNames, pPin->pName );
+        vFunc = Mio_ParseFormulaTruth( pPin->func_text, (char **)Vec_PtrArray(vNames), pCellCunxi->n_inputs );
+	if (print_debug)
+        	printf( "C-test: %6d -> %20s; Order %6d\n", Abc_ObjId(pCunxi_Obj), pCellCunxi->pName, pCellCunxi->Order);
+	*/
+        Vec_IntPush(vNodesOrderOld,pCellCunxi->Order);
+        Vec_IntPush(vNodesIDOld,Abc_ObjId(pCunxi_Obj)-1);  /* networkx starts with ID 0, reduce abc id by 1 */
+    }  
+    // perform upsizing
+    vNodes = Vec_IntAlloc( 1000 );
+    vEvals = Vec_IntAlloc( 1000 );
+    vTryLater = Vec_IntAlloc( 1000 );
+    for ( i = 0; i < pPars->nIters; i++ )
+    {
+        int nRounds = 0;
+        int nAttemptAll = 0, nOverlapAll = 0, nChangesAll = 0;
+        Abc_NtkCollectNodesByArea( p, pNtk );
+        while ( Vec_QueSize(p->vNodeByGain) > 0 )
+        {
+            int nAttempt = 0, nOverlap = 0, nChanges = 0;
+            Vec_IntClear( vTryLater );
+            Abc_NtkIncrementTravId( pNtk );
+            while ( Vec_QueSize(p->vNodeByGain) > 0 )
+            {
+                clk = Abc_Clock();
+                pObj = Abc_NtkObj( p->pNtk, Vec_QuePop(p->vNodeByGain) );
+                Abc_SclFindWindow( pObj, &vNodes, &vEvals );
+                p->timeCone += Abc_Clock() - clk;
+                if ( Abc_SclCheckOverlap( p->pNtk, vNodes ) )
+                    nOverlap++, Vec_IntPush( vTryLater, Abc_ObjId(pObj) );
+                else{ 
+                    nChanges += Abc_SclCheckImprovement( p, pObj, vNodes, vEvals, pPars->Notches, pPars->DelayGap );
+		}
+                nAttempt++;
+            }
+            Abc_NtkForEachObjVec( vTryLater, pNtk, pObj, k )
+                Vec_QuePush( p->vNodeByGain, Abc_ObjId(pObj) );
+
+            clk = Abc_Clock();
+            if ( Vec_IntSize(p->vChanged) )
+                Abc_SclTimeIncUpdate( p );
+            else
+                Abc_SclTimeNtkRecompute( p, &p->SumArea, &p->MaxDelay, pPars->fUseDept, pPars->DelayUser );
+            p->timeTime += Abc_Clock() - clk;
+
+            p->MaxDelay = Abc_SclReadMaxDelay( p );
+            if ( pPars->fUseDept && pPars->DelayUser > 0 && p->MaxDelay < pPars->DelayUser )
+                p->MaxDelay = pPars->DelayUser;
+            Abc_SclDnsizePrint( p, nRounds++, nAttempt, nOverlap, nChanges, pPars->fVeryVerbose ); 
+            nAttemptAll += nAttempt; nOverlapAll += nOverlap; nChangesAll += nChanges;
+            if ( nRuntimeLimit && Abc_Clock() > nRuntimeLimit )
+                break;
+        }
+        // recompute
+//        Abc_SclTimeNtkRecompute( p, &p->SumArea, &p->MaxDelay, pPars->fUseDept, pPars->DelayUser );
+        if ( pPars->fVerbose )
+            Abc_SclDnsizePrint( p, -1, nAttemptAll, nOverlapAll, nChangesAll, 1 ); 
+        if ( nRuntimeLimit && Abc_Clock() > nRuntimeLimit )
+            break;
+        if ( nAttemptAll == 0 )
+            break;
+    }
+    Vec_IntFree( vNodes );
+    Vec_IntFree( vEvals );
+    Vec_IntFree( vTryLater );
+    if ( !pPars->fVerbose )
+        printf( "                                                                                                                                                  \r" );
+
+    // report runtime
+    p->timeTotal = Abc_Clock() - p->timeTotal;
+    if ( pPars->fVerbose )
+    {
+        p->timeOther = p->timeTotal - p->timeCone - p->timeSize - p->timeTime;
+        ABC_PRTP( "Runtime: Critical path", p->timeCone,  p->timeTotal );
+        ABC_PRTP( "Runtime: Sizing eval  ", p->timeSize,  p->timeTotal );
+        ABC_PRTP( "Runtime: Timing update", p->timeTime,  p->timeTotal );
+        ABC_PRTP( "Runtime: Other        ", p->timeOther, p->timeTotal );
+        ABC_PRTP( "Runtime: TOTAL        ", p->timeTotal, p->timeTotal );
+    }
+    if ( pPars->fDumpStats )
+        Abc_SclDumpStats( p, "stats2.txt", p->timeTotal );
+    if ( nRuntimeLimit && Abc_Clock() > nRuntimeLimit )
+        printf( "Gate sizing timed out at %d seconds.\n", pPars->TimeOut );
+
+    //cunxi
+    SC_Pin * pPin;
+    #define KGRN  "\x1B[32m"
+    Abc_NtkForEachNode( p->pNtk, pCunxi_Obj, cunxi_i ){
+	pCellCunxi = Abc_SclObjCell( pCunxi_Obj );
+	if (print_debug)
+        	printf( "debugging [postsize]:: %6d -> %20s; Order %6d\n", Abc_ObjId(pCunxi_Obj), pCellCunxi->pName, pCellCunxi->Order);
+        Vec_IntPush(vNodesOrderImproved,pCellCunxi->Order);
+        Vec_IntPush(vNodesIDImproved,Abc_ObjId(pCunxi_Obj)-1); /* networkx starts with ID 0, reduce abc id by 1 */
+    } 
+    // cunxi : generate edgelist 
+    char * designName = pNtk->pName;
+    const char* extension = ".el";
+    char* name_with_extension;
+    name_with_extension = malloc(strlen(designName)+1+3); /* make space for the new string (should check the return value ...) */
+    strcpy(name_with_extension, designName); /* copy name into the new var */
+    strcat(name_with_extension, extension); /* add the extension */
+    Abc_SclEdgelistCunxi(pNtk, name_with_extension);
+    printf("%sedgelist succesfully dumps into %s\n",KGRN,name_with_extension); 
+    // cunxi: generate feature map 
+    //cunxi feature maps
+    const char* extension_json = "-class_map.json";
+    char* classmap_with_extension;
+    classmap_with_extension = malloc(strlen(designName)+1+15); /* make space for the new string (should check the return value ...) */
+    strcpy(classmap_with_extension, designName); /* copy name into the new var */
+    strcat(classmap_with_extension, extension_json); /* add the extension */
+    
+    const char* extension_csv = "-feats.csv";
+    char* feats_with_extension;
+    feats_with_extension = malloc(strlen(designName)+1+10); /* make space for the new string (should check the return value ...) */
+    strcpy(feats_with_extension, designName); /* copy name into the new var */
+    strcat(feats_with_extension, extension_csv); /* add the extension */
+ 
+    extension_csv = "-class_map.csv"; //format for DGL cktgl dataloader 
+    char* classmap_csv_with_extension;
+    classmap_csv_with_extension = malloc(strlen(designName)+1+14); /* make space for the new string (should check the return value ...) */
+    strcpy(classmap_csv_with_extension, designName); /* copy name into the new var */
+    strcat(classmap_csv_with_extension, extension_csv); /* add the extension */
+    
+    FILE * f_classmap, *f_feature, *f_classmap_csv;
+    f_classmap = fopen (classmap_with_extension, "w");
+    f_feature = fopen (feats_with_extension, "w");
+    f_classmap_csv = fopen (classmap_csv_with_extension, "w");
+    fprintf(f_classmap, "{");
+    Abc_Obj_t * pPiPo;
+    Abc_NtkForEachPi( pNtk, pPiPo, cunxi_i ){
+    /* networkx starts with ID 0, reduce abc id by 1 */
+	fprintf( f_classmap,"\"%d\":[%s], ", Abc_ObjId(pPiPo)-1, Abc_SclOnehotClass(maxSize,0)) ; //PI
+	fprintf( f_classmap_csv,"%d,", 0) ; //PI
+	fprintf( f_feature, "-1\n");
+    }
+    Abc_NtkForEachPo( pNtk, pPiPo, cunxi_i ){
+    /* networkx starts with ID 0, reduce abc id by 1 */
+	fprintf( f_classmap,"\"%d\":[%s], ", Abc_ObjId(pPiPo)-1, Abc_SclOnehotClass(maxSize,0)) ; //PO
+	fprintf( f_classmap_csv,"%d,", 0) ; //PO
+	fprintf( f_feature, "-2\n");
+    }
+    Abc_NtkForEachNode( p->pNtk, pCunxi_Obj, cunxi_i ){
+        pCellCunxi = Abc_SclObjCell( pCunxi_Obj );
+	fprintf( f_classmap,"\"%d\":[%s]", Abc_ObjId(pCunxi_Obj)-1, Abc_SclOnehotClass(maxSize, pCellCunxi->Order)) ; //PO
+	fprintf( f_classmap_csv,"%d", pCellCunxi->Order) ; 
+        if (cunxi_i < p->pNtk->nObjs){
+		fprintf( f_classmap,", ") ;
+		fprintf( f_classmap_csv,", ") ;
+	}
+        //fprintf(
+    }
+    fprintf(f_classmap, "}"); 
+
+    int j; 
+    Abc_NtkForEachNode( p->pNtk, pCunxi_Obj, cunxi_i ){
+	pCellCunxi = Abc_SclObjCell( pCunxi_Obj );
+	assert(pCellCunxi->n_outputs==1);
+  	//fprintf(f_feature, "%s\n", SC_CellPinOutFunc(pCellCunxi, 0));
+        SC_CellForEachPinOut( pCellCunxi, pPin, j ){
+        	Extra_PrintHex( f_feature, (unsigned *)Vec_WrdArray(&pPin->vFunc), pCellCunxi->n_inputs );
+        	fprintf(f_feature, "\n");
+	}
+	
+    }  
+    printf("%sfeats-map succesfully dumps into %s\n",KGRN,feats_with_extension); 
+/*
+    int iObj;
+    int count = 0;
+    Vec_IntForEachEntry( vNodesOrderOld, iObj, cunxi_i ){
+        assert( Vec_IntEntry(vNodesIDOld, cunxi_i) == Vec_IntEntry(vNodesIDImproved, cunxi_i)); 
+    	//printf( "\"%d\":[%s]\n", Vec_IntEntry(vNodesIDOld, cunxi_i), 
+	//	Abc_SclOnehotClass(maxSize, iObj - Vec_IntEntry(vNodesOrderImproved, cunxi_i)) );
+    	fprintf( f_classmap,"\"%d\":[%s]", Vec_IntEntry(vNodesIDOld, cunxi_i), 
+		 Abc_SclOnehotClass(maxSize, iObj - Vec_IntEntry(vNodesOrderImproved, cunxi_i))  ); //cunxi: inverted size; to have positive class
+	fprintf( f_classmap_csv,"%d", iObj - Vec_IntEntry(vNodesOrderImproved, cunxi_i) ) ; //PO
+	if (cunxi_i < Vec_IntSize(vNodesOrderOld)-1) {// for the last comma 
+		fprintf(f_classmap, ", ");
+		fprintf(f_classmap_csv, ",");
+        }
+        if (iObj - Vec_IntEntry(vNodesOrderImproved, cunxi_i) != 0)
+		count++;
+    }
+*/
+ //   fprintf(f_classmap, "}"); 
+    #define KRED  "\x1B[31m"
+    printf("%sclass-map-csv (for DGL) succesfully dumps into %s\n\n",KGRN,classmap_csv_with_extension); 
+    printf("%sclass-map succesfully dumps into %s\n%sDataset generation completed.\n",KGRN,classmap_with_extension, KRED); 
+    //printf("%s %d out of %d have been sized down (%f)\n", KGRN, count, Vec_IntSize(vNodesOrderOld), (double)count/Vec_IntSize(vNodesOrderOld)); 
+
+
+    // cunxi's code end 
+ 
+
+    // save the result and quit
+    Abc_SclSclGates2MioGates( pLib, pNtk ); // updates gate pointers
+   
+    Abc_SclManFree( p );
+//    Abc_NtkCleanMarkAB( pNtk );
+}
+
+/**Function*************************************************************
+
+  Synopsis    []
+
+  Description []
+               
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+void Abc_SclDnsizePerform( SC_Lib * pLib, Abc_Ntk_t * pNtk, SC_SizePars * pPars )
+{
+    Abc_Ntk_t * pNtkNew = pNtk;
+    if ( pNtk->nBarBufs2 > 0 )
+        pNtkNew = Abc_NtkDupDfsNoBarBufs( pNtk );
+    Abc_SclDnsizePerformInt( pLib, pNtkNew, pPars );
+    if ( pNtk->nBarBufs2 > 0 )
+        Abc_SclTransferGates( pNtk, pNtkNew );
+    if ( pNtk->nBarBufs2 > 0 )
+        Abc_NtkDelete( pNtkNew );
+}
+
+////////////////////////////////////////////////////////////////////////
+///                       END OF FILE                                ///
+////////////////////////////////////////////////////////////////////////
+
+
+ABC_NAMESPACE_IMPL_END
+
