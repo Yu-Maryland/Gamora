@@ -3,12 +3,13 @@
 ## Installation
 
 ### Prereq: 
-1) Python packages: 
+1) Python packages: torch and torch_geometric 
 	
 
 2) Package: readline (follow ABC installation requirement)
 	
 	sudo apt-get install libreadline6 libreadline6-dev (Ubuntu)
+
 	sudo yum install readline-devel (CentOS, RedHat)
 
 ### Installation
@@ -74,11 +75,13 @@ Highest Train: 0.00 ± nan
 Highest Valid: 0.00 ± nan
   Final Train: 0.00 ± nan
    Final Test: 98.77 ± nan
-
+```
 
 
 
 #### New commands for ABC
+
+```bash
 	abc 01> edgelist -h
 	usage: edgelist : Generate pre-dataset for graph learning (MPNN,GraphSAGE, dense graph matrix)
 	-F : Edgelist file name (*.el)
@@ -91,4 +94,4 @@ Highest Valid: 0.00 ± nan
  		  read your.blif; strash; if -K 6; edgelist -L -F lut-test.el 
  	Example 3 (Generate dataset for abstraction; supervised for FA/HA extraction  - GraphSAGE)
  		  read your.blif; strash; &get; &edgelist -F test.el -c test-class_map.json -f test-feats.csv
-
+```
