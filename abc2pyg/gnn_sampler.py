@@ -175,11 +175,12 @@ def confusion_matrix_plot(model, data, split_idx, evaluator, subgraph_loader, de
     plt.xlabel('Predictions', fontsize=22)
     plt.ylabel('Actuals', fontsize=22)
     #plt.title('Confusion Matrix', fontsize=25)
-    plt.savefig('confusion_matrix_' + str(datatype) + '.pdf', bbox_inches = 'tight',pad_inches = 0)
+    if save_file:
+        plt.savefig('confusion_matrix_' + str(datatype) + '.pdf', bbox_inches = 'tight',pad_inches = 0)
 
 
 def main():
-    parser = argparse.ArgumentParser(description='mult16')
+    parser = argparse.ArgumentParser(description='Gamora')
     parser.add_argument('--bits', type=int, default=8)
     parser.add_argument('--bits_test', type=int, default=8)
     parser.add_argument('--datagen', type=int, default=0,
@@ -201,6 +202,7 @@ def main():
     parser.add_argument('--lr', type=float, default=0.005)
     parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--runs', type=int, default=2)
+    parser.add_argument('--confusionmatrix', type=bool, default=False)
     args = parser.parse_args()
     print(args)
 
@@ -212,27 +214,6 @@ def main():
     print(root_folder)
     # new generator functionalities: 0) multiplier 1) adder 2) read design
 
-    ## training dataset loading
-    """
-
-    dataset_generator = ABCGenDataset(args.bits, args.datagen, root_folder, args.designfile)
-    dataset_generator.generate(dataset_path=root_folder+"/dataset")
-    dataset = PygNodePropPredDataset(name=dataset_generator.design_name)
-    print("Training on %s" % dataset_generator.design_name)
-    data = dataset[0]
-    data = T.ToSparseTensor()(data)
-    #data.adj_t = data.adj_t.to_symmetric()
-
-    split_idx = dataset.get_idx_split()
-    train_idx = split_idx['train'].to(device)
-    train_loader = NeighborSampler(data.adj_t, node_idx=train_idx,
-                               sizes=[5, 3, 2], batch_size=100,
-                               shuffle=True)
-    subgraph_loader = NeighborSampler(data.adj_t, node_idx=None, sizes=[-1],
-                                  batch_size=4096, shuffle=False,
-                                  )
-
-    """
     data, dataset, dataset_generator, train_loader, subgraph_loader, train_idx, split_idx \
             = dataloader_prep(args.bits, args.datagen, root_folder, args.designfile, device, args.num_class, args.multilabel)
     evaluator = Evaluator(name=dataset_generator.design_name)
@@ -242,10 +223,8 @@ def main():
                      args.dropout).to(device)
 
     data = data.to(device)
-
-    #evaluator_test = Evaluator(name=dataset_generator_test.design_name)
     logger = Logger(args.runs, args)
-
+    # training on train set
     for run in range(args.runs):
         model.reset_parameters()
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -267,7 +246,8 @@ def main():
 
         logger.print_statistics(run)
     logger.print_statistics()
-    # evaluation
+
+    # evaluation on test set
     logger_eval = Logger(1, args)
     data, dataset, dataset_generator, train_loader, subgraph_loader, train_idx, split_idx \
             = dataloader_prep(args.bits_test, args.datagen_test, root_folder, args.designfile, device, args.num_class, args.multilabel)
@@ -288,7 +268,8 @@ def main():
                       f'Test: {100 * test_acc:.2f}%')
 
         logger_eval.print_statistics(run_1)
-    confusion_matrix_plot(model, data, split_idx, evaluator, subgraph_loader, device, datatype='test', save_file=True)
+    confusion_matrix_plot(model, data, split_idx, evaluator, subgraph_loader,
+            device, datatype='test', save_file=args.confusionmatrix)
     logger_eval.print_statistics()
 
 
