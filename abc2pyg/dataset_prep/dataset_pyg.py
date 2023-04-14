@@ -15,7 +15,7 @@ from read_graph_raw import read_node_label_hetero, read_nodesplitidx_split_heter
 from .make_master_file import make_master
 
 class PygNodePropPredDataset(InMemoryDataset):
-    def __init__(self, name, num_class, root = root_folder+'/dataset', transform=None, pre_transform=None, meta_dict = None):
+    def __init__(self, name, num_class = 0, root = root_folder+'/dataset', transform=None, pre_transform=None, meta_dict = None):
         '''
             - name (str): name of the dataset
             - root (str): root directory to store the dataset folder
@@ -26,8 +26,8 @@ class PygNodePropPredDataset(InMemoryDataset):
         ''' 
 
         self.name = name ## original name, e.g., ogbn-proteins
-        make_master(self.name, num_class)
-        print("make_master :%s" % self.name)
+        # make_master(self.name, num_class)
+        # print("make_master :%s" % self.name)
         if meta_dict is None:
             self.dir_name = '_'.join(name.split('-')) 
             

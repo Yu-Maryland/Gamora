@@ -24,6 +24,10 @@
 
 ABC_NAMESPACE_IMPL_START
 
+
+// label file type
+#define JSON (0)
+#define CSV (1)
 ////////////////////////////////////////////////////////////////////////
 ///                        DECLARATIONS                              ///
 ////////////////////////////////////////////////////////////////////////
@@ -423,7 +427,7 @@ int isAdds(int id, Vec_Int_t * vAdds)
     {
         if(id == Vec_IntEntry(vAdds, 6*i+3))
             return 1;
-        else if(id == Vec_IntEntry(vAdds, 6*i+4))
+        else if(id == Vec_IntEntry(vAdds, 6*i+4)) // maj output
             return 2;
     }
     return 0;
@@ -437,9 +441,207 @@ int isVecEntry(int id, Vec_Int_t * vInt)
     }
     return 0;
 }
+
+Vec_Int_t * extractXor(Vec_Int_t * vAdds)
+{
+    int i;
+    Vec_Int_t * v = Vec_IntAlloc(10);
+    for ( i = 0; 6*i < Vec_IntSize(vAdds); i++ )
+    {
+        Vec_IntPush( v, Vec_IntEntry(vAdds, 6*i+3) );
+    }
+    return v;
+}
+
+
+Vec_Int_t * extractMaj(Vec_Int_t * vAdds)
+{
+    int i;
+    Vec_Int_t * v = Vec_IntAlloc(10);
+    for ( i = 0; 6*i < Vec_IntSize(vAdds); i++ )
+    {
+        Vec_IntPush( v, Vec_IntEntry(vAdds, 6*i+4) );
+    }
+    return v;
+}
+
+
+
+
 //cunxi
+
+
 // Multiple label(class) on same nodes if possible 
 void Gia_EdgelistMultiLabel( Gia_Man_t * p , char *f0, char *f1, char *f2, int multihot)
+{
+    extern void Acec_TreeVerifyConnections( Gia_Man_t * p, Vec_Int_t * vAdds, Vec_Wec_t * vBoxes );
+
+    abctime clk = Abc_Clock();
+    Acec_Box_t * pBox = NULL;
+    Vec_Int_t * vXors, * vAdds = Ree_ManComputeCuts( p, &vXors, 0 );
+    Vec_Int_t * vTemp, * vXorRoots = Acec_FindXorRoots( p, vXors ); 
+    Vec_Int_t * vRanks = Acec_RankTrees( p, vXors, vXorRoots ); 
+    Vec_Wec_t * vXorLeaves, * vAddBoxes = NULL; 
+
+    Vec_Int_t * vAdds_copy = Vec_IntDup(vAdds);
+    Vec_Int_t * vXors_copy = Vec_IntDup(vXors);
+    Vec_IntSort(vAdds, 0);  // sorting in ascending order for common search
+    Vec_IntSort(vXors, 0); // sorting in ascending order for common search
+
+    Vec_Int_t * vMaj = extractMaj(vAdds_copy);
+    Vec_Int_t * vXors_e = extractXor(vAdds_copy);
+
+    //Vec_IntPrint(vMaj);
+    //Vec_IntPrint(vXorRoots);
+
+    Vec_Int_t * vXors_vAdds_share = Vec_IntAlloc( Gia_ManObjNum(p) ); // initialize with upper bound node count
+    int common = Vec_IntTwoFindCommon( vXors, vAdds, vXors_vAdds_share);
+    if (common > 0){
+        //printf("common > 0");
+        common = Vec_IntUniqify(vXors_vAdds_share);
+    }
+
+    //Vec_IntUniqify(vXors_copy);
+    //Vec_IntUniqify(vAdds_copy);
+    /*
+    printf( "XOR after Cut compute: \n" );
+    Vec_IntPrint( vXors_copy );
+    printf( "vAdds after Cut compute: \n" );
+    Vec_IntPrint( vAdds_copy );
+    printf( "XOR roots after reordering: \n" );
+    Vec_IntPrint( vXorRoots );
+    printf( "xor add share: %d \n" , common );
+    if (common > 0){
+        Vec_IntPrint( vXors_vAdds_share );
+    }
+*/
+    Gia_ManLevelNum(p);
+    Gia_edgelist(p,f0,f1,f2);
+    FILE * f_class;
+    f_class = fopen (f1, "w"); 
+    int i;
+    Gia_Obj_t * pObj;
+    if(multihot!=1){
+	if JSON {
+        fprintf(f_class, "{");
+	    Gia_ManForEachCi( p, pObj, i )
+		    fprintf(f_class, "\"%d\": [0,0,0,0,0,1,0,0], ", Gia_ObjId(p,pObj)-1);
+	    Gia_ManForEachAnd(p, pObj, i){
+            // MTL label (shared)
+		    if ( Vec_IntFind(vXors_vAdds_share, Gia_ObjId(p,pObj)) != -1 )
+			    fprintf(f_class, "\"%d\": [0,0,1,0,0,0,", Gia_ObjId(p,pObj)-1); //xor and maj 
+		    else if ( Vec_IntFind(vAdds_copy, Gia_ObjId(p,pObj)) != -1 )
+			    fprintf(f_class, "\"%d\": [0,0,0,1,0,0,", Gia_ObjId(p,pObj)-1); // maj
+		    else if ( Vec_IntFind(vXors_copy, Gia_ObjId(p,pObj)) != -1 )
+			    fprintf(f_class, "\"%d\": [0,0,0,0,1,0,", Gia_ObjId(p,pObj)-1); // xor
+		    else
+			    fprintf(f_class, "\"%d\": [0,1,0,0,0,0,", Gia_ObjId(p,pObj)-1); // and
+            // root label
+		    if (isAdds(Gia_ObjId(p,pObj), vAdds) == 0)
+                fprintf(f_class, "0,1], ", Gia_ObjId(p,pObj)-1); //xor 
+            else if(isAdds(Gia_ObjId(p,pObj), vAdds) == 1)
+                fprintf(f_class, "1,0], ", Gia_ObjId(p,pObj)-1); // maj
+            else
+                fprintf(f_class, "0,0], ", Gia_ObjId(p,pObj)-1); // and
+   	    } 
+	    Gia_ManForEachCo( p, pObj, i )
+		    if(  i < Gia_ManCoNum(p) - 1)
+			    fprintf(f_class, "\"%d\": [1,0,0,0,0,0,0,0], ", Gia_ObjId(p,pObj)-1);
+		    else
+			    fprintf(f_class, "\"%d\": [1,0,0,0,0,0,0,0]", Gia_ObjId(p,pObj)-1);
+
+	    fprintf(f_class, "}");
+	    fclose(f_class);
+		 }
+
+	else {
+	    Gia_ManForEachCi( p, pObj, i )
+		    fprintf(f_class, "0,0,0,0,0,1,0,0\n", Gia_ObjId(p,pObj)-1);
+	    Gia_ManForEachAnd(p, pObj, i){
+            // MTL label (shared)
+		    if ( Vec_IntFind(vXors_vAdds_share, Gia_ObjId(p,pObj)) != -1 )
+			    fprintf(f_class, "0,0,1,0,0,0,", Gia_ObjId(p,pObj)-1); //xor and maj 
+		    else if ( Vec_IntFind(vAdds_copy, Gia_ObjId(p,pObj)) != -1 )
+			    fprintf(f_class, "0,0,0,1,0,0,", Gia_ObjId(p,pObj)-1); // maj
+		    else if ( Vec_IntFind(vXors_copy, Gia_ObjId(p,pObj)) != -1 )
+			    fprintf(f_class, "0,0,0,0,1,0,", Gia_ObjId(p,pObj)-1); // xor
+		    else
+			    fprintf(f_class, "0,1,0,0,0,0,", Gia_ObjId(p,pObj)-1); // and
+            // root label
+		    if (isAdds(Gia_ObjId(p,pObj), vAdds) == 0)
+                fprintf(f_class, "0,1\n", Gia_ObjId(p,pObj)-1); //xor 
+            else if(isAdds(Gia_ObjId(p,pObj), vAdds) == 1)
+                fprintf(f_class, "1,0\n", Gia_ObjId(p,pObj)-1); // maj
+            else
+                fprintf(f_class, "0,0\n", Gia_ObjId(p,pObj)-1); // and
+   	    } 
+	    Gia_ManForEachCo( p, pObj, i )
+		    if(  i < Gia_ManCoNum(p) - 1)
+			    fprintf(f_class, "1,0,0,0,0,0,0,0\n", Gia_ObjId(p,pObj)-1);
+		    else
+			    fprintf(f_class, "1,0,0,0,0,0,0,0\n", Gia_ObjId(p,pObj)-1);
+
+	    fclose(f_class);
+		 }
+
+
+    }
+    else {
+         if JSON {
+	    Gia_ManForEachCi( p, pObj, i )
+		    fprintf(f_class, "\"%d\": [0,0,0,0,1], ", Gia_ObjId(p,pObj)-1);
+	    Gia_ManForEachAnd(p, pObj, i){
+		    if ( Vec_IntFind(vXors_vAdds_share, Gia_ObjId(p,pObj)) != -1 )
+			    fprintf(f_class, "\"%d\": [0,0,1,1,0], ", Gia_ObjId(p,pObj)-1); //xor and maj 
+		    else if ( Vec_IntFind(vAdds_copy, Gia_ObjId(p,pObj)) != -1 )
+			    fprintf(f_class, "\"%d\": [0,0,1,0,0], ", Gia_ObjId(p,pObj)-1); // maj
+		    else if ( Vec_IntFind(vXors_copy, Gia_ObjId(p,pObj)) != -1 )
+			    fprintf(f_class, "\"%d\": [0,0,0,1,0], ", Gia_ObjId(p,pObj)-1); // xor
+		    else
+			    fprintf(f_class, "\"%d\": [0,1,0,0,0], ", Gia_ObjId(p,pObj)-1); // and
+	    } 
+	    Gia_ManForEachCo( p, pObj, i )
+		    if(  i < Gia_ManCoNum(p) - 1)
+			    fprintf(f_class, "\"%d\": [1,0,0,0,0], ", Gia_ObjId(p,pObj)-1);
+		    else
+			    fprintf(f_class, "\"%d\": [1,0,0,0,0]", Gia_ObjId(p,pObj)-1);
+
+	    fprintf(f_class, "}");
+	    fclose(f_class);
+	 }
+         //csv
+	 else {
+		 Gia_ManForEachCi( p, pObj, i )
+			 fprintf(f_class, "0,0,0,0,1\n");
+		 Gia_ManForEachAnd(p, pObj, i){
+			 if (isAdds(Gia_ObjId(p,pObj), vAdds) == 0)
+				 //if (isAdds(Gia_ObjId(p,pObj), vXors) == 0)
+				 fprintf(f_class, "0,0,0,1,0\n"); //xor 
+			 else if(isAdds(Gia_ObjId(p,pObj), vAdds) == 1)
+				 fprintf(f_class, "0,0,1,0,0\n"); // maj
+			 else
+				 fprintf(f_class, "0,1,0,0,0\n"); // and
+		 } 
+		 Gia_ManForEachCo( p, pObj, i )
+			 if(  i < Gia_ManCoNum(p) - 1)
+				 fprintf(f_class, "1,0,0,0,0\n");
+			 else
+				 fprintf(f_class, "1,0,0,0,0\n");
+
+		 fclose(f_class);
+	 }
+
+
+    }
+
+
+}
+
+
+
+// Multiple label(class) on same nodes if possible 
+
+void Gia_EdgelistMultiLabel_issue( Gia_Man_t * p , char *f0, char *f1, char *f2, int multihot)
 {
     extern void Acec_TreeVerifyConnections( Gia_Man_t * p, Vec_Int_t * vAdds, Vec_Wec_t * vBoxes );
 
@@ -464,6 +666,7 @@ void Gia_EdgelistMultiLabel( Gia_Man_t * p , char *f0, char *f1, char *f2, int m
 
     //Vec_IntUniqify(vXors_copy);
     //Vec_IntUniqify(vAdds_copy);
+    /*
     printf( "XOR after Cut compute: \n" );
     Vec_IntPrint( vXors_copy );
     printf( "vAdds after Cut compute: \n" );
@@ -474,6 +677,115 @@ void Gia_EdgelistMultiLabel( Gia_Man_t * p , char *f0, char *f1, char *f2, int m
     if (common > 0){
         Vec_IntPrint( vXors_vAdds_share );
     }
+    */
+    Gia_ManLevelNum(p);
+    Gia_edgelist(p,f0,f1,f2);
+    FILE * f_class;
+    f_class = fopen (f1, "w"); 
+    int i;
+    fprintf(f_class, "{");
+    Gia_Obj_t * pObj;
+
+    if(multihot!=1){
+	    Gia_ManForEachCi( p, pObj, i )
+		    fprintf(f_class, "\"%d\": [0,0,0,0,0,1,0,0], ", Gia_ObjId(p,pObj)-1);
+	    Gia_ManForEachAnd(p, pObj, i){
+		    if ( Vec_IntFind(vXors_vAdds_share, Gia_ObjId(p,pObj)) != -1 ) // xor/maj shared
+                if (isAdds(Gia_ObjId(p,pObj), vAdds) == 0)
+			        fprintf(f_class, "\"%d\": [0,0,1,0,0,0,1,0], ", Gia_ObjId(p,pObj)-1); //shared & xor root
+                else if(isAdds(Gia_ObjId(p,pObj), vAdds) == 1)
+			        fprintf(f_class, "\"%d\": [0,0,1,0,0,0,0,1], ", Gia_ObjId(p,pObj)-1); //shared & major root
+                else
+			        fprintf(f_class, "\"%d\": [0,0,1,0,0,0,0,0], ", Gia_ObjId(p,pObj)-1); //shared & not root
+		    else if ( Vec_IntFind(vAdds_copy, Gia_ObjId(p,pObj)) != -1 )
+                if (isAdds(Gia_ObjId(p,pObj), vAdds) == 1)
+			        fprintf(f_class, "\"%d\": [0,0,0,1,0,0,0,1], ", Gia_ObjId(p,pObj)-1); // maj only & maj root
+                else
+			        fprintf(f_class, "\"%d\": [0,0,0,1,0,0,0,0], ", Gia_ObjId(p,pObj)-1); // maj only & not maj root
+		    else if ( Vec_IntFind(vXors_copy, Gia_ObjId(p,pObj)) != -1 )
+                if (isAdds(Gia_ObjId(p,pObj), vAdds) == 0)
+			        fprintf(f_class, "\"%d\": [0,0,0,0,1,0,1,0], ", Gia_ObjId(p,pObj)-1); // xor only * xor root
+                else
+			        fprintf(f_class, "\"%d\": [0,0,0,0,1,0,0,0], ", Gia_ObjId(p,pObj)-1); // xor only & not xor root
+		    else
+			    fprintf(f_class, "\"%d\": [0,1,0,0,0,0,0,0], ", Gia_ObjId(p,pObj)-1); // and
+	    } 
+	    Gia_ManForEachCo( p, pObj, i )
+		    if(  i < Gia_ManCoNum(p) - 1)
+			    fprintf(f_class, "\"%d\": [1,0,0,0,0,0,0,0], ", Gia_ObjId(p,pObj)-1);
+		    else
+			    fprintf(f_class, "\"%d\": [1,0,0,0,0,0,0,0]", Gia_ObjId(p,pObj)-1);
+
+	    fprintf(f_class, "}");
+	    fclose(f_class);
+    }
+    else {
+	    Gia_ManForEachCi( p, pObj, i )
+		    fprintf(f_class, "\"%d\": [0,0,0,0,1], ", Gia_ObjId(p,pObj)-1);
+	    Gia_ManForEachAnd(p, pObj, i){
+		    if ( Vec_IntFind(vXors_vAdds_share, Gia_ObjId(p,pObj)) != -1 )
+			    fprintf(f_class, "\"%d\": [0,0,1,1,0], ", Gia_ObjId(p,pObj)-1); //xor and maj 
+		    else if ( Vec_IntFind(vAdds_copy, Gia_ObjId(p,pObj)) != -1 )
+			    fprintf(f_class, "\"%d\": [0,0,1,0,0], ", Gia_ObjId(p,pObj)-1); // maj
+		    else if ( Vec_IntFind(vXors_copy, Gia_ObjId(p,pObj)) != -1 )
+			    fprintf(f_class, "\"%d\": [0,0,0,1,0], ", Gia_ObjId(p,pObj)-1); // xor
+		    else
+			    fprintf(f_class, "\"%d\": [0,1,0,0,0], ", Gia_ObjId(p,pObj)-1); // and
+	    } 
+	    Gia_ManForEachCo( p, pObj, i )
+		    if(  i < Gia_ManCoNum(p) - 1)
+			    fprintf(f_class, "\"%d\": [1,0,0,0,0], ", Gia_ObjId(p,pObj)-1);
+		    else
+			    fprintf(f_class, "\"%d\": [1,0,0,0,0]", Gia_ObjId(p,pObj)-1);
+
+	    fprintf(f_class, "}");
+	    fclose(f_class);
+    }
+
+
+}
+
+
+
+
+// Multiple label(class) on same nodes if possible 
+void Gia_EdgelistMultiLabelOld( Gia_Man_t * p , char *f0, char *f1, char *f2, int multihot)
+{
+    extern void Acec_TreeVerifyConnections( Gia_Man_t * p, Vec_Int_t * vAdds, Vec_Wec_t * vBoxes );
+
+    abctime clk = Abc_Clock();
+    Acec_Box_t * pBox = NULL;
+    Vec_Int_t * vXors, * vAdds = Ree_ManComputeCuts( p, &vXors, 0 );
+    Vec_Int_t * vTemp, * vXorRoots = Acec_FindXorRoots( p, vXors ); 
+    Vec_Int_t * vRanks = Acec_RankTrees( p, vXors, vXorRoots ); 
+    Vec_Wec_t * vXorLeaves, * vAddBoxes = NULL; 
+
+    Vec_Int_t * vAdds_copy = Vec_IntDup(vAdds);
+    Vec_Int_t * vXors_copy = Vec_IntDup(vXors);
+    Vec_IntSort(vAdds, 0);  // sorting in ascending order for common search
+    Vec_IntSort(vXors, 0); // sorting in ascending order for common search
+
+    Vec_Int_t * vXors_vAdds_share = Vec_IntAlloc( Gia_ManObjNum(p) ); // initialize with upper bound node count
+    int common = Vec_IntTwoFindCommon( vXors, vAdds, vXors_vAdds_share);
+    if (common > 0){
+        //printf("common > 0");
+        common = Vec_IntUniqify(vXors_vAdds_share);
+    }
+
+    //Vec_IntUniqify(vXors_copy);
+    //Vec_IntUniqify(vAdds_copy);
+    /*
+    printf( "XOR after Cut compute: \n" );
+    Vec_IntPrint( vXors_copy );
+    printf( "vAdds after Cut compute: \n" );
+    Vec_IntPrint( vAdds_copy );
+    printf( "XOR roots after reordering: \n" );
+    Vec_IntPrint( vXorRoots );
+    printf( "xor add share: %d \n" , common );
+    if (common > 0){
+        Vec_IntPrint( vXors_vAdds_share );
+    }
+*/
     Gia_ManLevelNum(p);
     Gia_edgelist(p,f0,f1,f2);
     FILE * f_class;
@@ -572,6 +884,8 @@ void Gia_EdgelistGraphSAGE( Gia_Man_t * p , char *f0, char *f1, char *f2)
     FILE * f_class;
     f_class = fopen (f1, "w"); 
     int i;
+
+if JSON {
     fprintf(f_class, "{");
     Gia_Obj_t * pObj;
     Gia_ManForEachCi( p, pObj, i )
@@ -593,6 +907,29 @@ void Gia_EdgelistGraphSAGE( Gia_Man_t * p , char *f0, char *f1, char *f2)
 
     fprintf(f_class, "}");
     fclose(f_class);
+}
+else {
+    Gia_Obj_t * pObj;
+    Gia_ManForEachCi( p, pObj, i )
+        fprintf(f_class, "0,0,0,0,1\n");
+    Gia_ManForEachAnd(p, pObj, i){
+        if (isAdds(Gia_ObjId(p,pObj), vAdds) == 0)
+        //if (isAdds(Gia_ObjId(p,pObj), vXors) == 0)
+            fprintf(f_class, "0,0,0,1,0\n"); //xor 
+        else if(isAdds(Gia_ObjId(p,pObj), vAdds) == 1)
+            fprintf(f_class, "0,0,1,0,0\n"); // maj
+        else
+            fprintf(f_class, "0,1,0,0,0\n"); // and
+    } 
+    Gia_ManForEachCo( p, pObj, i )
+        if(  i < Gia_ManCoNum(p) - 1)
+            fprintf(f_class, "1,0,0,0,0\n");
+        else
+            fprintf(f_class, "1,0,0,0,0\n");
+
+    fclose(f_class);
+}
+
  
 }
 Acec_Box_t * Acec_ProduceBox( Gia_Man_t * p, int fVerbose )
