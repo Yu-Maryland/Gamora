@@ -60,7 +60,7 @@ class Gia_EdgelistMultiLabel()
     ```
     ```python
     python ABC_dataset_generation.py --bits 32
-    # generate an 32-bit CSA multiplier
+    # generate a 32-bit CSA multiplier
     ```
 
 * Training and inference
