@@ -64,20 +64,20 @@ class Gia_EdgelistMultiLabel()
     python ABC_dataset_generation.py --bits 8
     # generate an 8-bit CSA multiplier
     ```
-	```python
+    ```python
     python ABC_dataset_generation.py --bits 32
-    # generate an 32-bit CSA multiplier
+    # generate a 32-bit CSA multiplier
     ```
 
 * Training and inference
     ```python
     python gnn_multitask.py --bits 8 --bits_test 32
     # training with mult8, and testing with mult32
-	 ```
+    ```
 
 * Inference with pre-trained model
-	 ```python
-    python gnn_multitask_0dg_inference.py --model_path SAGE_mult8 --bits_test 32 --design_copies 1
+    ```python
+    python gnn_multitask_inference.py --model_path SAGE_mult8 --bits_test 32 --design_copies 1
     # load the pre-trained model "SAGE_mult8", and test with mult32
     ```
 
