@@ -1,5 +1,11 @@
 # Gamora: Graph Learning based Symbolic Reasoning for Large-Scale Boolean Networks (DAC'23) 
 
+<center>
+<figure>
+  <img src="./images/gamora.jpg" style="width:90%" style="text-align:center;">
+</figure>
+</center>
+
 ## Installation
 
 ### Prereq: 
