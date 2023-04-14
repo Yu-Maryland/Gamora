@@ -53,9 +53,27 @@ class Gia_EdgelistMultiLabel()
 
 #### 2) Train-Test Demo - training on 8-bit CSA and predicting on 32-bit CSA
 
-```python
-python gnn_sampler.py --datagen 0 --bits 8 --datagen_test 0 --bits_test 32 --multilabel True --num_class 6
-```
+* Dataset generation
+    ```python
+    python ABC_dataset_generation.py --bits 8
+    # generate an 8-bit CSA multiplier
+    ```
+	```python
+    python ABC_dataset_generation.py --bits 32
+    # generate an 32-bit CSA multiplier
+    ```
+
+* Training and inference
+    ```python
+    python gnn_multitask.py --bits 8 --bits_test 32
+    # training with mult8, and testing with mult32
+	 ```
+
+* Inference with pre-trained model
+	 ```python
+    python gnn_multitask_0dg_inference.py --model_path SAGE_mult8 --bits_test 32 --design_copies 1
+    # load the pre-trained model "SAGE_mult8", and test with mult32
+    ```
 
 *Training INPUT*: 8-bit CSA-Mult
 
@@ -64,17 +82,17 @@ python gnn_sampler.py --datagen 0 --bits 8 --datagen_test 0 --bits_test 32 --mul
 
 ```bash
 # training
-Highest Train: 96.60
-Highest Valid: 95.79
-  Final Train: 96.60
-   Final Test: 96.44
+Highest Train: 99.45
+Highest Valid: 100.00
+  Final Train: 98.90
+   Final Test: 99.12
 
 # testing
 mult32
 Highest Train: 0.00 ± nan
 Highest Valid: 0.00 ± nan
   Final Train: 0.00 ± nan
-   Final Test: 98.77 ± nan
+   Final Test: 99.95 ± nan
 ```
 
 
