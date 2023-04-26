@@ -6,6 +6,19 @@
 </figure>
 </center>
 
+## Paper
+
+https://arxiv.org/pdf/2303.08256.pdf
+
+```bash
+@article{wu2023gamora,
+  title={Gamora: Graph Learning based Symbolic Reasoning for Large-Scale Boolean Networks},
+  author={Wu, Nan and Li, Yingjie and Hao, Cong and Dai, Steve and Yu, Cunxi and Xie, Yuan},
+  journal={Design Automation Conference (DAC'23)},
+  year={2023}
+}
+```
+
 ## Installation
 
 ### Prereq: 
