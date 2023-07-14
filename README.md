@@ -43,6 +43,10 @@ compile ABC customized for graph learning
 
 
 
+## Pre-processed Dataset - CSA (techmapped) and Booth Multipliers
+
+Check at Huggingface: https://huggingface.co/datasets/yucx0626/Gamora-CSA-Multiplier/tree/main
+
 ## Implementation
 
 #### 1) Data generator 
