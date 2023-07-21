@@ -568,19 +568,19 @@ def main():
     dataset_r = PygNodePropPredDataset(name = design_name + '_root')
     print("Training on %s" % design_name)
     data_r = dataset_r[0]
-    data_r = T.ToSparseTensor(layout=torch.sparse_csr)(data_r)
+    #data_r = T.ToSparseTensor(layout=torch.sparse_csr)(data_r)
     
     dataset = PygNodePropPredDataset(name = design_name + '_shared')
     data = dataset[0]
-    data = T.ToSparseTensor(layout=torch.sparse_csr)(data)
+    #data = T.ToSparseTensor(layout=torch.sparse_csr)(data)
     split_idx = dataset.get_idx_split()
     train_idx = split_idx['train'].to(device)
     train_loader = NeighborLoader(data, input_nodes=train_idx,
                             num_neighbors=[8, 5, 5, 5], batch_size = 20,
-                            shuffle=True)
+                            shuffle=True, transform=T.ToSparseTensor())
     
     subgraph_loader = NeighborLoader(data, input_nodes=None, num_neighbors=[-1],
-                                  batch_size=4096, shuffle=False,
+                                  batch_size=4096, shuffle=False, transform=T.ToSparseTensor()
                                   )
     
     evaluator = Evaluator(name = design_name + '_shared')
@@ -644,13 +644,13 @@ def main():
     
     dataset_r = PygNodePropPredDataset(name = design_name + '_root')
     data_r = dataset_r[0]
-    data_r = T.ToSparseTensor(layout=torch.sparse_csr)(data_r)
+    #data_r = T.ToSparseTensor(layout=torch.sparse_csr)(data_r)
     
     dataset = PygNodePropPredDataset(name = design_name + '_shared')
     data = dataset[0]
-    data = T.ToSparseTensor(layout=torch.sparse_csr)(data)
+    #data = T.ToSparseTensor(layout=torch.sparse_csr)(data)
     subgraph_loader = NeighborLoader(data, input_nodes=None, num_neighbors=[-1],
-                                  batch_size=4096, shuffle=False,
+                                  batch_size=4096, shuffle=False, transform=T.ToSparseTensor()
                                   )
     
     # tensor placement
