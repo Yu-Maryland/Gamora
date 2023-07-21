@@ -65,12 +65,10 @@ class SAGE_MULT(torch.nn.Module):
         for lin in self.linear:
             lin.reset_parameters()
 
-    def forward(self, x, adjs):
-        for i, (edge_index, _, size) in enumerate(adjs):
-            x_target = x[:size[1]]  # Target nodes are always placed first.
-            x = self.convs[i]((x, x_target), edge_index)
-            x = F.relu(x)
-            x = F.dropout(x, p=0.5, training=self.training)
+    def forward(self, x, edge_index):
+        x = self.convs[i](x, edge_index)
+        x = F.relu(x)
+        x = F.dropout(x, p=0.5, training=self.training)
             
         # print(x[0])
         x = self.linear[0](x)
@@ -83,13 +81,13 @@ class SAGE_MULT(torch.nn.Module):
         # print(x1[0])
         return x, x1.log_softmax(dim=-1), x2.log_softmax(dim=-1), x3.log_softmax(dim=-1)
     
-    def forward_nosampler(self, x, adj_t, device):
+    def forward_nosampler(self, x, edge_index, device):
         # tensor placement
         x.to(device)
-        adj_t.to(device)
+        edge_index.to(device)
         
         for conv in self.convs:
-            x = conv(x, adj_t)
+            x = conv(x, edge_index)
             x = F.relu(x)
             x = F.dropout(x, p=0.5, training=self.training)
 
@@ -344,7 +342,7 @@ def test_nosampler(model, data_r, data, split_idx, evaluator, datatype, device):
     model.eval()
     
     start_time = time.time()
-    out1, out2, out3 = model.forward_nosampler(data.x, data.adj_t, device)
+    out1, out2, out3 = model.forward_nosampler(data.x, data.edge_index, device)
     y_pred_shared = post_processing(out1, out2)
     y_pred_root = out3.argmax(dim=-1, keepdim=True)
     print('The inference time is %s' % (time.time() - start_time))
