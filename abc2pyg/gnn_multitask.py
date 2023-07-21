@@ -143,7 +143,6 @@ def train(model, data_r, data, train_idx, optimizer, train_loader, device):
     pbar = tqdm(total=train_idx.size(0))
 
     total_loss = total_correct = 0
-    for batch_size, n_id, adjs in :
     for batch in train_loader:
         batch = batch.to(device)
         batch_size, n_id, edge_index = batch.batch_size, batch.n_id, batch.edge_index
