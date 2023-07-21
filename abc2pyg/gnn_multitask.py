@@ -194,7 +194,7 @@ def train(model, data_r, data, train_idx, optimizer, train_loader, device):
         optimizer.step()
 
         total_loss += float(loss)
-        total_correct += int(out1.argmax(dim=-1).eq(y1).sum())
+        total_correct += int(out1[:batch_size].argmax(dim=-1).eq(y1).sum())
         pbar.update(batch_size)
 
     pbar.close()
