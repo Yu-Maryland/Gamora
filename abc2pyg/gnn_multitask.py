@@ -151,7 +151,7 @@ def train(model, data_r, data, train_idx, optimizer, train_loader, device):
         
         ### build labels for multitask
         ### original 0: PO, 1: plain, 2: shared, 3: maj, 4: xor, 5: PI
-        y1 = data.y.squeeze(1)[n_id[:batch_size]].clone().detach() # make (maj and xor) as xor
+        y1 = batch.y.squeeze(1)[:batch_size].clone().detach() # make (maj and xor) as xor
         for i in range(y1.size()[-1]):
             if y1[i] == 0 or y1[i] == 5:
                 y1[i] = 1
@@ -161,7 +161,7 @@ def train(model, data_r, data, train_idx, optimizer, train_loader, device):
                 y1[i] = y1[i] - 1 # make to 5 classes
             y1[i] = y1[i] - 1 # 3 classes: 0: plain, 1: maj, 2: xor
                 
-        y2 = data.y.squeeze(1)[n_id[:batch_size]].clone().detach() # make (maj and xor) as maj
+        y2 = batch.y.squeeze(1)[:batch_size].clone().detach() # make (maj and xor) as maj
         for i in range(y2.size()[-1]):
             if y2[i] > 2:
                 y2[i] = y2[i] - 1 # make to 5 classes
@@ -172,7 +172,7 @@ def train(model, data_r, data, train_idx, optimizer, train_loader, device):
         # for root classification
         # 0: PO, 1: maj, 2: xor, 3: and, 4: PI
         # y3 = data_r.y.squeeze(1)[n_id[:batch_size]]
-        y3 = data_r.y.squeeze(1)[n_id[:batch_size]].clone().detach()
+        y3 = batch.y.squeeze(1)[:batch_size].clone().detach()
         for i in range(y3.size()[-1]):
             if y3[i] == 0 or y3[i] == 4:
                 y3[i] = 3
