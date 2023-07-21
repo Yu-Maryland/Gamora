@@ -116,8 +116,8 @@ class SAGE_MULT(torch.nn.Module):
             
             for batch in subgraph_loader:
                 batch = batch.to(device)
-                batch_size, n_id, edge_index = batch.batch_size, batch.n_id, batch.edge_index
-                total_edges += edge_index.size(1)
+                batch_size, n_id, edge_index = batch.batch_size, batch.n_id, batch.adj_t
+                total_edges += batch.num_edges
                 x = x_all[n_id].to(device)
                 x_target = x[:batch_size]
                 x = self.convs[i]((x, x_target), edge_index)
@@ -144,7 +144,7 @@ def train(model, data_r, data, train_idx, optimizer, train_loader, device):
     total_loss = total_correct = 0
     for batch in train_loader:
         batch = batch.to(device)
-        batch_size, n_id, edge_index = batch.batch_size, batch.n_id, batch.edge_index
+        batch_size, n_id, edge_index = batch.batch_size, batch.n_id, batch.adj_t
 
         optimizer.zero_grad()
         _, out1, out2, out3 = model(batch.x, edge_index)
@@ -351,7 +351,7 @@ def test_nosampler(model, data_r, data, split_idx, evaluator, datatype, device):
     model.eval()
     
     start_time = time.time()
-    out1, out2, out3 = model.forward_nosampler(data.x, data.edge_index, device)
+    out1, out2, out3 = model.forward_nosampler(data.x, data.adj_t, device)
     y_pred_shared = post_processing(out1, out2)
     y_pred_root = out3.argmax(dim=-1, keepdim=True)
     print('The inference time is %s' % (time.time() - start_time))
@@ -568,11 +568,11 @@ def main():
     dataset_r = PygNodePropPredDataset(name = design_name + '_root')
     print("Training on %s" % design_name)
     data_r = dataset_r[0]
-    #data_r = T.ToSparseTensor()(data_r)
+    data_r = T.ToSparseTensor()(data_r)
     
     dataset = PygNodePropPredDataset(name = design_name + '_shared')
     data = dataset[0]
-    #data = T.ToSparseTensor()(data)
+    data = T.ToSparseTensor()(data)
     split_idx = dataset.get_idx_split()
     train_idx = split_idx['train'].to(device)
     train_loader = NeighborLoader(data, input_nodes=train_idx,
@@ -644,11 +644,11 @@ def main():
     
     dataset_r = PygNodePropPredDataset(name = design_name + '_root')
     data_r = dataset_r[0]
-    #data_r = T.ToSparseTensor()(data_r)
+    data_r = T.ToSparseTensor()(data_r)
     
     dataset = PygNodePropPredDataset(name = design_name + '_shared')
     data = dataset[0]
-    #data = T.ToSparseTensor()(data)
+    data = T.ToSparseTensor()(data)
     subgraph_loader = NeighborLoader(data, input_nodes=None, num_neighbors=[-1],
                                   batch_size=4096, shuffle=False,
                                   )
