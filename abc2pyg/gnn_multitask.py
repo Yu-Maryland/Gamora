@@ -188,7 +188,7 @@ def train(model, data_r, data, train_idx, optimizer, train_loader, device):
         print("out2.size()=", out2.size())
         print("out3.size()=", out3.size())
         # loss =  F.nll_loss(out1, y1) + F.nll_loss(out2, y2) +  0.8 * F.nll_loss(out3, y3)
-        loss = F.nll_loss(out1, y1) + F.nll_loss(out2, y2) + 2 * F.nll_loss(out3, y3)
+        loss = F.nll_loss(out1[:batch_size], y1) + F.nll_loss(out2[:batch_size], y2) + 2 * F.nll_loss(out3[:batch_size], y3)
         
         loss.backward()
         optimizer.step()
