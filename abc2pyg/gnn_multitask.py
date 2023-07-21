@@ -147,7 +147,7 @@ def train(model, data_r, data, train_idx, optimizer, train_loader, device):
         batch_size, n_id, edge_index = batch.batch_size, batch.n_id, batch.edge_index
 
         optimizer.zero_grad()
-        _, out1, out2, out3 = model(data.x[n_id], edge_index)
+        _, out1, out2, out3 = model(batch.x, edge_index)
         
         ### build labels for multitask
         ### original 0: PO, 1: plain, 2: shared, 3: maj, 4: xor, 5: PI
