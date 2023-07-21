@@ -66,9 +66,10 @@ class SAGE_MULT(torch.nn.Module):
             lin.reset_parameters()
 
     def forward(self, x, edge_index):
-        x = self.convs[i](x, edge_index)
-        x = F.relu(x)
-        x = F.dropout(x, p=0.5, training=self.training)
+        for conv in self.convs:
+            x = conv(x, edge_index)
+            x = F.relu(x)
+            x = F.dropout(x, p=0.5, training=self.training)
             
         # print(x[0])
         x = self.linear[0](x)
