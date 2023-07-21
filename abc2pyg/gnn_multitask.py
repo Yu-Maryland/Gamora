@@ -560,7 +560,7 @@ def main():
     dataset_r = PygNodePropPredDataset(name = design_name + '_root')
     print("Training on %s" % design_name)
     data_r = dataset_r[0]
-    data_r = T.ToSparseTensor()(data_r)
+    #data_r = T.ToSparseTensor()(data_r)
     
     dataset = PygNodePropPredDataset(name = design_name + '_shared')
     data = dataset[0]
