@@ -178,15 +178,15 @@ def train(model, data_r, data, train_idx, optimizer, train_loader, device):
                 y3[i] = 3
             y3[i] = y3[i] - 1 # 3 classes: 0: maj, 1: xor, 2: and+PI+PO
 
-        print("batch_size=", batch_size)
-        print("n_id.size()=", n_id.size())
-        print("edge_index.size()=",edge_index.size())
-        print("y1.size()=", y1.size())
-        print("y2.size()=", y2.size())
-        print("y3.size()=", y3.size())
-        print("out1.size()=", out1.size())
-        print("out2.size()=", out2.size())
-        print("out3.size()=", out3.size())
+        # print("batch_size=", batch_size)
+        # print("n_id.size()=", n_id.size())
+        # print("edge_index.size()=",edge_index.size())
+        # print("y1.size()=", y1.size())
+        # print("y2.size()=", y2.size())
+        # print("y3.size()=", y3.size())
+        # print("out1.size()=", out1.size())
+        # print("out2.size()=", out2.size())
+        # print("out3.size()=", out3.size())
         # loss =  F.nll_loss(out1, y1) + F.nll_loss(out2, y2) +  0.8 * F.nll_loss(out3, y3)
         loss = F.nll_loss(out1[:batch_size], y1) + F.nll_loss(out2[:batch_size], y2) + 2 * F.nll_loss(out3[:batch_size], y3)
         
