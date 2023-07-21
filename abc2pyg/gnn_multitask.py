@@ -116,8 +116,8 @@ class SAGE_MULT(torch.nn.Module):
             
             for batch in subgraph_loader:
                 batch = batch.to(device)
-                batch_size, n_id, edge_index = batch.batch_size, batch.n_id, batch.adj_t
-                total_edges += batch.num_edges
+                batch_size, n_id, edge_index = batch.batch_size, batch.n_id, batch.edge_index
+                total_edges += edge_index.size(1)
                 x = x_all[n_id].to(device)
                 x_target = x[:batch_size]
                 x = self.convs[i]((x, x_target), edge_index)
@@ -144,14 +144,14 @@ def train(model, data_r, data, train_idx, optimizer, train_loader, device):
     total_loss = total_correct = 0
     for batch in train_loader:
         batch = batch.to(device)
-        batch_size, n_id, edge_index = batch.batch_size, batch.n_id, batch.adj_t
+        batch_size, n_id, edge_index = batch.batch_size, batch.n_id, batch.edge_index
 
         optimizer.zero_grad()
         _, out1, out2, out3 = model(batch.x, edge_index)
         
         ### build labels for multitask
         ### original 0: PO, 1: plain, 2: shared, 3: maj, 4: xor, 5: PI
-        y1 = batch.y.squeeze(1)[:batch_size].clone().detach() # make (maj and xor) as xor
+        y1 = data.y.squeeze(1)[n_id[:batch_size]].clone().detach() # make (maj and xor) as xor
         for i in range(y1.size()[-1]):
             if y1[i] == 0 or y1[i] == 5:
                 y1[i] = 1
@@ -161,7 +161,7 @@ def train(model, data_r, data, train_idx, optimizer, train_loader, device):
                 y1[i] = y1[i] - 1 # make to 5 classes
             y1[i] = y1[i] - 1 # 3 classes: 0: plain, 1: maj, 2: xor
                 
-        y2 = batch.y.squeeze(1)[:batch_size].clone().detach() # make (maj and xor) as maj
+        y2 = data.y.squeeze(1)[n_id[:batch_size]].clone().detach() # make (maj and xor) as maj
         for i in range(y2.size()[-1]):
             if y2[i] > 2:
                 y2[i] = y2[i] - 1 # make to 5 classes
@@ -172,7 +172,7 @@ def train(model, data_r, data, train_idx, optimizer, train_loader, device):
         # for root classification
         # 0: PO, 1: maj, 2: xor, 3: and, 4: PI
         # y3 = data_r.y.squeeze(1)[n_id[:batch_size]]
-        y3 = batch.y.squeeze(1)[:batch_size].clone().detach()
+        y3 = data_r.y.squeeze(1)[n_id[:batch_size]].clone().detach()
         for i in range(y3.size()[-1]):
             if y3[i] == 0 or y3[i] == 4:
                 y3[i] = 3
@@ -351,7 +351,7 @@ def test_nosampler(model, data_r, data, split_idx, evaluator, datatype, device):
     model.eval()
     
     start_time = time.time()
-    out1, out2, out3 = model.forward_nosampler(data.x, data.adj_t, device)
+    out1, out2, out3 = model.forward_nosampler(data.x, data.edge_index, device)
     y_pred_shared = post_processing(out1, out2)
     y_pred_root = out3.argmax(dim=-1, keepdim=True)
     print('The inference time is %s' % (time.time() - start_time))
@@ -568,21 +568,19 @@ def main():
     dataset_r = PygNodePropPredDataset(name = design_name + '_root')
     print("Training on %s" % design_name)
     data_r = dataset_r[0]
-    #data_r = T.ToSparseTensor(layout=torch.sparse_csr)(data_r)
+    #data_r = T.ToSparseTensor()(data_r)
     
     dataset = PygNodePropPredDataset(name = design_name + '_shared')
     data = dataset[0]
-    #data = T.ToSparseTensor(layout=torch.sparse_csr)(data)
+    #data = T.ToSparseTensor()(data)
     split_idx = dataset.get_idx_split()
     train_idx = split_idx['train'].to(device)
-    # data_r = data_r.to(device)
-    # data = data.to(device)
     train_loader = NeighborLoader(data, input_nodes=train_idx,
                             num_neighbors=[8, 5, 5, 5], batch_size = 20,
-                            shuffle=True, transform=T.ToSparseTensor())
+                            shuffle=True)
     
     subgraph_loader = NeighborLoader(data, input_nodes=None, num_neighbors=[-1],
-                                  batch_size=4096, shuffle=False, transform=T.ToSparseTensor()
+                                  batch_size=4096, shuffle=False,
                                   )
     
     evaluator = Evaluator(name = design_name + '_shared')
@@ -590,6 +588,9 @@ def main():
     model = SAGE_MULT(data.num_features, args.hidden_channels,
                      3, args.num_layers,
                      args.dropout).to(device)
+    
+    data_r = data_r.to(device)
+    data = data.to(device)
 
     logger_r = Logger(args.runs, args)
     logger = Logger(args.runs, args)
@@ -643,13 +644,13 @@ def main():
     
     dataset_r = PygNodePropPredDataset(name = design_name + '_root')
     data_r = dataset_r[0]
-    #data_r = T.ToSparseTensor(layout=torch.sparse_csr)(data_r)
+    #data_r = T.ToSparseTensor()(data_r)
     
     dataset = PygNodePropPredDataset(name = design_name + '_shared')
     data = dataset[0]
-    #data = T.ToSparseTensor(layout=torch.sparse_csr)(data)
+    #data = T.ToSparseTensor()(data)
     subgraph_loader = NeighborLoader(data, input_nodes=None, num_neighbors=[-1],
-                                  batch_size=4096, shuffle=False, transform=T.ToSparseTensor()
+                                  batch_size=4096, shuffle=False,
                                   )
     
     # tensor placement
