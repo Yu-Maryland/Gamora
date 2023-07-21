@@ -575,6 +575,8 @@ def main():
     #data = T.ToSparseTensor(layout=torch.sparse_csr)(data)
     split_idx = dataset.get_idx_split()
     train_idx = split_idx['train'].to(device)
+    data_r = data_r.to(device)
+    data = data.to(device)
     train_loader = NeighborLoader(data, input_nodes=train_idx,
                             num_neighbors=[8, 5, 5, 5], batch_size = 20,
                             shuffle=True, transform=T.ToSparseTensor())
@@ -588,9 +590,6 @@ def main():
     model = SAGE_MULT(data.num_features, args.hidden_channels,
                      3, args.num_layers,
                      args.dropout).to(device)
-    
-    data_r = data_r.to(device)
-    data = data.to(device)
 
     logger_r = Logger(args.runs, args)
     logger = Logger(args.runs, args)
