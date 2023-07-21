@@ -115,11 +115,12 @@ class SAGE_MULT(torch.nn.Module):
         for i in range(self.num_layers):
             xs = []
             
-            for batch_size, n_id, adj in subgraph_loader:
-                edge_index, _, size = adj.to(device)
+            for batch in subgraph_loader:
+                batch = batch.to(device)
+                batch_size, n_id, edge_index = batch.batch_size, batch.n_id, batch.edge_index
                 total_edges += edge_index.size(1)
                 x = x_all[n_id].to(device)
-                x_target = x[:size[1]]
+                x_target = x[:batch_size]
                 x = self.convs[i]((x, x_target), edge_index)
                 x = F.relu(x)
                 xs.append(x)
@@ -142,12 +143,13 @@ def train(model, data_r, data, train_idx, optimizer, train_loader, device):
     pbar = tqdm(total=train_idx.size(0))
 
     total_loss = total_correct = 0
-    for batch_size, n_id, adjs in train_loader:
-        # `adjs` holds a list of `(edge_index, e_id, size)` tuples.
-        adjs = [adj.to(device) for adj in adjs]
+    for batch_size, n_id, adjs in :
+    for batch in train_loader:
+        batch = batch.to(device)
+        batch_size, n_id, edge_index = batch.batch_size, batch.n_id, batch.edge_index
 
         optimizer.zero_grad()
-        _, out1, out2, out3 = model(data.x[n_id], adjs)
+        _, out1, out2, out3 = model(data.x[n_id], edge_index)
         
         ### build labels for multitask
         ### original 0: PO, 1: plain, 2: shared, 3: maj, 4: xor, 5: PI
