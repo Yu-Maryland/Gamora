@@ -9,7 +9,7 @@ import torch_geometric.transforms as T
 from torch_geometric.nn import GCNConv, SAGEConv
 
 from dataset_prep import PygNodePropPredDataset, Evaluator
-from torch_geometric.loader import NeighborSampler
+from torch_geometric.loader import NeighborLoader
 
 from logger import Logger
 from tqdm import tqdm
@@ -564,17 +564,14 @@ def main():
     
     dataset = PygNodePropPredDataset(name = design_name + '_shared')
     data = dataset[0]
-    data = T.ToSparseTensor()(data)
+    #data = T.ToSparseTensor()(data)
     split_idx = dataset.get_idx_split()
     train_idx = split_idx['train'].to(device)
-    train_loader = NeighborSampler(data.adj_t, node_idx=train_idx,
-                            sizes=[8, 5, 5, 5], batch_size = 20,
+    train_loader = NeighborLoader(data, input_nodes=train_idx,
+                            num_neighbors=[8, 5, 5, 5], batch_size = 20,
                             shuffle=True)
-    # train_loader = NeighborSampler(data.adj_t, node_idx=train_idx,
-    #                            sizes=[8, 8, 8, 8, 8, 8, 8, 8], batch_size = 100,
-    #                            shuffle=True)
     
-    subgraph_loader = NeighborSampler(data.adj_t, node_idx=None, sizes=[-1],
+    subgraph_loader = NeighborLoader(data, input_nodes=None, num_neighbors=[-1],
                                   batch_size=4096, shuffle=False,
                                   )
     
@@ -643,8 +640,8 @@ def main():
     
     dataset = PygNodePropPredDataset(name = design_name + '_shared')
     data = dataset[0]
-    data = T.ToSparseTensor()(data)
-    subgraph_loader = NeighborSampler(data.adj_t, node_idx=None, sizes=[-1],
+    #data = T.ToSparseTensor()(data)
+    subgraph_loader = NeighborLoader(data, input_nodes=None, num_neighbors=[-1],
                                   batch_size=4096, shuffle=False,
                                   )
     
