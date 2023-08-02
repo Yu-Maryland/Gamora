@@ -127,7 +127,7 @@ class SAGE_MULT(torch.nn.Module):
             
             for batch in subgraph_loader:
                 if use_old:
-                    batch_size, n_id, adj = batch:
+                    batch_size, n_id, adj = batch
                     edge_index, _, size = adj.to(device)
                 else:
                     batch = batch.to(device)
