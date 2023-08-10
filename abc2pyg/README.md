@@ -68,6 +68,11 @@ class Gia_EdgelistMultiLabel()
     python gnn_multitask.py --bits 8 --bits_test 32
     # training with mult8, and testing with mult32
     ```
+    * An updated version with further speedup (suggested environment: [PyG 23.07 container from NVIDIA](https://developer.nvidia.com/pyg-container-early-access))
+      ```python
+    	python gnn_multitask_v2.py --bits 8 --bits_test 32
+    	# training with mult8, and testing with mult32
+      ```
 
 * Inference with pre-trained model
     ```python
