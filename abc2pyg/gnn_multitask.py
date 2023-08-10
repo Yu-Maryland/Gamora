@@ -9,13 +9,7 @@ import torch_geometric.transforms as T
 from torch_geometric.nn import GCNConv, SAGEConv
 
 from dataset_prep import PygNodePropPredDataset, Evaluator
-from torch_geometric import __version__ as pyg_version
-pyg_version = float('.'.join(pyg_version.split('.')[:-1]))
-use_old = pyg_version <= 2.1
-if use_old:
-    from torch_geometric.loader import NeighborSampler
-else:
-    from torch_geometric.loader import NeighborLoader
+from torch_geometric.loader import NeighborSampler
 
 from logger import Logger
 from tqdm import tqdm
@@ -71,16 +65,12 @@ class SAGE_MULT(torch.nn.Module):
         for lin in self.linear:
             lin.reset_parameters()
 
-    def forward(self, x, edge_index):
-        if use_old:
-            for i, (e_idx, _, size) in enumerate(edge_index):
-                x_target = x[:size[1]]  # Target nodes are always placed first.
-                x = self.convs[i]((x, x_target), e_idx)
-        else:
-            for conv in self.convs:
-                x = conv(x, edge_index)
-                x = F.relu(x)
-                x = F.dropout(x, p=0.5, training=self.training)
+    def forward(self, x, adjs):
+        for i, (edge_index, _, size) in enumerate(adjs):
+            x_target = x[:size[1]]  # Target nodes are always placed first.
+            x = self.convs[i]((x, x_target), edge_index)
+            x = F.relu(x)
+            x = F.dropout(x, p=0.5, training=self.training)
             
         # print(x[0])
         x = self.linear[0](x)
@@ -93,13 +83,13 @@ class SAGE_MULT(torch.nn.Module):
         # print(x1[0])
         return x, x1.log_softmax(dim=-1), x2.log_softmax(dim=-1), x3.log_softmax(dim=-1)
     
-    def forward_nosampler(self, x, edge_index, device):
+    def forward_nosampler(self, x, adj_t, device):
         # tensor placement
         x.to(device)
-        edge_index.to(device)
+        adj_t.to(device)
         
         for conv in self.convs:
-            x = conv(x, edge_index)
+            x = conv(x, adj_t)
             x = F.relu(x)
             x = F.dropout(x, p=0.5, training=self.training)
 
@@ -125,19 +115,11 @@ class SAGE_MULT(torch.nn.Module):
         for i in range(self.num_layers):
             xs = []
             
-            for batch in subgraph_loader:
-                if use_old:
-                    batch_size, n_id, adj = batch
-                    edge_index, _, size = adj.to(device)
-                else:
-                    batch = batch.to(device)
-                    batch_size, n_id, edge_index = batch.batch_size, batch.n_id, batch.edge_index
+            for batch_size, n_id, adj in subgraph_loader:
+                edge_index, _, size = adj.to(device)
                 total_edges += edge_index.size(1)
                 x = x_all[n_id].to(device)
-                if use_old:
-                    x_target = x[:size[1]]
-                else:
-                    x_target = x[:batch_size]
+                x_target = x[:size[1]]
                 x = self.convs[i]((x, x_target), edge_index)
                 x = F.relu(x)
                 xs.append(x)
@@ -160,20 +142,12 @@ def train(model, data_r, data, train_idx, optimizer, train_loader, device):
     pbar = tqdm(total=train_idx.size(0))
 
     total_loss = total_correct = 0
-    for batch in train_loader:
-        if use_old:
-            batch_size, n_id, adjs = batch
-            # `adjs` holds a list of `(edge_index, e_id, size)` tuples.
-            adjs = [adj.to(device) for adj in adjs]
-        else:
-            batch = batch.to(device)
-            batch_size, n_id, edge_index = batch.batch_size, batch.n_id, batch.edge_index
+    for batch_size, n_id, adjs in train_loader:
+        # `adjs` holds a list of `(edge_index, e_id, size)` tuples.
+        adjs = [adj.to(device) for adj in adjs]
 
         optimizer.zero_grad()
-        if use_old:
-            _, out1, out2, out3 = model(data.x[n_id], adjs)
-        else:
-            _, out1, out2, out3 = model(batch.x, edge_index)
+        _, out1, out2, out3 = model(data.x[n_id], adjs)
         
         ### build labels for multitask
         ### original 0: PO, 1: plain, 2: shared, 3: maj, 4: xor, 5: PI
@@ -204,30 +178,15 @@ def train(model, data_r, data, train_idx, optimizer, train_loader, device):
                 y3[i] = 3
             y3[i] = y3[i] - 1 # 3 classes: 0: maj, 1: xor, 2: and+PI+PO
 
-        # print("batch_size=", batch_size)
-        # print("n_id.size()=", n_id.size())
-        # print("edge_index.size()=",edge_index.size())
-        # print("y1.size()=", y1.size())
-        # print("y2.size()=", y2.size())
-        # print("y3.size()=", y3.size())
-        # print("out1.size()=", out1.size())
-        # print("out2.size()=", out2.size())
-        # print("out3.size()=", out3.size())
+            
         # loss =  F.nll_loss(out1, y1) + F.nll_loss(out2, y2) +  0.8 * F.nll_loss(out3, y3)
-        if use_old:
-            loss = F.nll_loss(out1, y1) + F.nll_loss(out2, y2) + 2 * F.nll_loss(out3, y3)
-        else:
-            loss = F.nll_loss(out1[:batch_size], y1) + F.nll_loss(out2[:batch_size], y2) + 2 * F.nll_loss(out3[:batch_size], y3)
-
+        loss = F.nll_loss(out1, y1) + F.nll_loss(out2, y2) + 2 * F.nll_loss(out3, y3)
         
         loss.backward()
         optimizer.step()
 
         total_loss += float(loss)
-        if use_old:
-            total_correct += int(out1.argmax(dim=-1).eq(y1).sum())
-        else:
-            total_correct += int(out1[:batch_size].argmax(dim=-1).eq(y1).sum())
+        total_correct += int(out1.argmax(dim=-1).eq(y1).sum())
         pbar.update(batch_size)
 
     pbar.close()
@@ -384,10 +343,7 @@ def test_nosampler(model, data_r, data, split_idx, evaluator, datatype, device):
     model.eval()
     
     start_time = time.time()
-    if use_old:
-        out1, out2, out3 = model.forward_nosampler(data.x, data.adj_t, device)
-    else:
-        out1, out2, out3 = model.forward_nosampler(data.x, data.edge_index, device)
+    out1, out2, out3 = model.forward_nosampler(data.x, data.adj_t, device)
     y_pred_shared = post_processing(out1, out2)
     y_pred_root = out3.argmax(dim=-1, keepdim=True)
     print('The inference time is %s' % (time.time() - start_time))
@@ -556,10 +512,10 @@ def main():
     parser.add_argument('--bits', type=int, default=8)
     parser.add_argument('--bits_test', type=int, default=32)
     parser.add_argument('--datagen', type=int, default=0,
-        help="0=multiplier generator, 1=adder generator, 2=loading design")
+		help="0=multiplier generator, 1=adder generator, 2=loading design")
     # (0)(1) require bits as inputs; (2) requires designfile as input
     parser.add_argument('--datagen_test', type=int, default=0,
-        help="0=multiplier generator, 1=adder generator, 2=loading design")
+		help="0=multiplier generator, 1=adder generator, 2=loading design")
     # (0)(1) require bits as inputs; (2) requires designfile as input
     parser.add_argument('--multilabel', type=int, default=1,
         help="0=5 classes; 1=6 classes with shared xor/maj as a new class; 2=multihot representation")
@@ -604,29 +560,23 @@ def main():
     dataset_r = PygNodePropPredDataset(name = design_name + '_root')
     print("Training on %s" % design_name)
     data_r = dataset_r[0]
-    #data_r = T.ToSparseTensor()(data_r)
+    data_r = T.ToSparseTensor()(data_r)
     
     dataset = PygNodePropPredDataset(name = design_name + '_shared')
     data = dataset[0]
-    #data = T.ToSparseTensor()(data)
+    data = T.ToSparseTensor()(data)
     split_idx = dataset.get_idx_split()
     train_idx = split_idx['train'].to(device)
-    if use_old:
-        train_loader = NeighborSampler(data.adj_t, node_idx=train_idx,
+    train_loader = NeighborSampler(data.adj_t, node_idx=train_idx,
                             sizes=[8, 5, 5, 5], batch_size = 20,
                             shuffle=True)
-    else:
-        train_loader = NeighborLoader(data, input_nodes=train_idx,
-                                num_neighbors=[8, 5, 5, 5], batch_size = 20,
-                                shuffle=True)
-    if use_old:
-        subgraph_loader = NeighborSampler(data.adj_t, node_idx=None, sizes=[-1],
-                                      batch_size=4096, shuffle=False,
-                                      )
-    else:
-        subgraph_loader = NeighborLoader(data, input_nodes=None, num_neighbors=[-1],
-                                      batch_size=4096, shuffle=False,
-                                      )
+    # train_loader = NeighborSampler(data.adj_t, node_idx=train_idx,
+    #                            sizes=[8, 8, 8, 8, 8, 8, 8, 8], batch_size = 100,
+    #                            shuffle=True)
+    
+    subgraph_loader = NeighborSampler(data.adj_t, node_idx=None, sizes=[-1],
+                                  batch_size=4096, shuffle=False,
+                                  )
     
     evaluator = Evaluator(name = design_name + '_shared')
 
@@ -689,20 +639,14 @@ def main():
     
     dataset_r = PygNodePropPredDataset(name = design_name + '_root')
     data_r = dataset_r[0]
-    if use_old:
-        data_r = T.ToSparseTensor()(data_r)
+    data_r = T.ToSparseTensor()(data_r)
     
     dataset = PygNodePropPredDataset(name = design_name + '_shared')
     data = dataset[0]
-    if use_old:
-        data = T.ToSparseTensor()(data)
-        subgraph_loader = NeighborSampler(data.adj_t, node_idx=None, sizes=[-1],
+    data = T.ToSparseTensor()(data)
+    subgraph_loader = NeighborSampler(data.adj_t, node_idx=None, sizes=[-1],
                                   batch_size=4096, shuffle=False,
                                   )
-    else:
-        subgraph_loader = NeighborLoader(data, input_nodes=None, num_neighbors=[-1],
-                                      batch_size=4096, shuffle=False,
-                                      )
     
     # tensor placement
     data_r.y = data_r.y.to(device)
