@@ -6,6 +6,24 @@
 </figure>
 </center>
 
+## Paper
+
+https://arxiv.org/pdf/2303.08256.pdf
+
+```bash
+@article{wu2023gamora,
+  title={Gamora: Graph Learning based Symbolic Reasoning for Large-Scale Boolean Networks},
+  author={Wu, Nan and Li, Yingjie and Hao, Cong and Dai, Steve and Yu, Cunxi and Xie, Yuan},
+  journal={Design Automation Conference (DAC'23)},
+  year={2023}
+}
+```
+
+
+## A more generic framework for Boolean/RTL Graph Learning -- [V2PYG](https://ycunxi.github.io/Verilog-to-PyG) 
+
+We are developing a more generic V2PYG framework to provide versatile capabilities for converting RTL designs into foundational graph representations, while also facilitating RTL-equivalent argumentation. https://ycunxi.github.io/Verilog-to-PyG
+
 ## Installation
 
 ### Prereq: 
@@ -24,6 +42,10 @@ compile ABC customized for graph learning
 	cd abc;make clean;make -j4
 
 
+
+## Pre-processed Dataset - CSA (techmapped) and Booth Multipliers
+
+Check at Huggingface: https://huggingface.co/datasets/yucx0626/Gamora-CSA-Multiplier/tree/main
 
 ## Implementation
 
