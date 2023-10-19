@@ -20,9 +20,9 @@ https://arxiv.org/pdf/2303.08256.pdf
 ```
 
 
-## A more generic framework for Boolean/RTL Graph Learning -- [V2PYG](https://ycunxi.github.io/Verilog-to-PyG) 
+## A more generic framework for Boolean/RTL Graph Learning -- [V2PYG](https://yu-maryland.github.io/Verilog-to-PyG/) 
 
-We are developing a more generic V2PYG framework to provide versatile capabilities for converting RTL designs into foundational graph representations, while also facilitating RTL-equivalent argumentation. https://ycunxi.github.io/Verilog-to-PyG
+We are developing a more generic V2PYG framework to provide versatile capabilities for converting RTL designs into foundational graph representations, while also facilitating RTL-equivalent argumentation. [https://ycunxi.github.io/Verilog-to-PyG](https://yu-maryland.github.io/Verilog-to-PyG/)
 
 ## Installation
 
