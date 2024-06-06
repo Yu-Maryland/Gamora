@@ -27,10 +27,27 @@ from el_sage_baseline import test as test_el
 from sklearn.model_selection import train_test_split
 from torch_geometric.loader import DataLoader
 
-os.environ["CUDA_VISIBLE_DEVICES"]=""
-#torch.set_num_threads(80)
-# num_layers = 6, hidden_channels = 80 for 7nm mapped
 
+import wandb
+def initialize_wandb(args):
+    if args.wandb:
+        wandb.init(
+            project="el_sage",
+            config={
+                "learning_rate": args.learning_rate,
+                "epochs": args.epochs,
+                "batch_size": args.batch_size,
+                "num_layers": args.num_layers,
+                "hidden_dim": args.hidden_dim,
+                "highest_order": args.highest_order,
+                "dropout": args.dropout
+                
+            }
+        )
+    else:
+        wandb.init(mode="disabled")
+        
+os.environ["CUDA_VISIBLE_DEVICES"]=""
 class SAGE_MULT(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, out_channels, num_layers,
                  dropout):
@@ -133,288 +150,10 @@ class SAGE_MULT(torch.nn.Module):
 
         return x1, x2, x3  
      
-def train(model, data_r, data, train_idx, optimizer, train_loader, device):
-    pbar = tqdm(total=train_idx.size(0))
-
-    total_loss = total_correct = 0
-    for batch_size, n_id, adjs in train_loader:
-        # `adjs` holds a list of `(edge_index, e_id, size)` tuples.
-        adjs = [adj.to(device) for adj in adjs]
-
-        optimizer.zero_grad()
-        _, out1, out2, out3 = model(data.x[n_id], adjs)
-        
-        ### build labels for multitask
-        ### original 0: PO, 1: plain, 2: shared, 3: maj, 4: xor, 5: PI
-        y1 = data.y.squeeze(1)[n_id[:batch_size]].clone().detach() # make (maj and xor) as xor
-        for i in range(y1.size()[-1]):
-            if y1[i] == 0 or y1[i] == 5:
-                y1[i] = 1
-            if y1[i] == 2: 
-                y1[i] = 4
-            if y1[i] > 2:
-                y1[i] = y1[i] - 1 # make to 5 classes
-            y1[i] = y1[i] - 1 # 3 classes: 0: plain, 1: maj, 2: xor
-                
-        y2 = data.y.squeeze(1)[n_id[:batch_size]].clone().detach() # make (maj and xor) as maj
-        for i in range(y2.size()[-1]):
-            if y2[i] > 2:
-                y2[i] = y2[i] - 1 # make to 5 classes
-            if y2[i] == 0 or y2[i] == 4:
-                y2[i] = 1
-            y2[i] = y2[i] - 1 # 3 classes: 0: plain, 1: maj, 2: xor
-                
-        # for root classification
-        # 0: PO, 1: maj, 2: xor, 3: and, 4: PI
-        # y3 = data_r.y.squeeze(1)[n_id[:batch_size]]
-        y3 = data_r.y.squeeze(1)[n_id[:batch_size]].clone().detach()
-        for i in range(y3.size()[-1]):
-            if y3[i] == 0 or y3[i] == 4:
-                y3[i] = 3
-            y3[i] = y3[i] - 1 # 3 classes: 0: maj, 1: xor, 2: and+PI+PO
-
-            
-        loss =  F.nll_loss(out1, y1) + F.nll_loss(out2, y2) + 0.8 * F.nll_loss(out3, y3)
-        
-        loss.backward()
-        optimizer.step()
-
-        total_loss += float(loss)
-        total_correct += int(out1.argmax(dim=-1).eq(y1).sum())
-        pbar.update(batch_size)
-
-    pbar.close()
-
-    loss = total_loss / len(train_loader)
-    approx_acc = total_correct / train_idx.size(0)
-
-    return loss, approx_acc
-
-def post_processing(out1, out2):
-    pred_1 = out1.argmax(dim=-1, keepdim=True)
-    pred_2 = out2.argmax(dim=-1, keepdim=True)
-    pred_ecc = (out1 + out2).argmax(dim=-1, keepdim=True)
-    # l =  pred_1.size()[0]
-    # pred = []
-    # for i in range(l):
-    #     if pred_1[i] == pred_2[i]:
-    #         if pred_1[i] == 0: # PO, and, PI
-    #             pred.append(torch.tensor([1]))
-    #         else: # maj, xor
-    #             pred.append(pred_1[i] + 2) # 3 or 4
-    #     else:
-    #         if (pred_1[i] == 1 and pred_2[i] == 2) or (pred_1[i] == 2 and pred_2[i] == 1):
-    #             pred.append(torch.tensor([2])) # maj and xor
-    #         else:
-    #             if pred_ecc[i] == 0: # PO, and, PI
-    #                 pred.append(torch.tensor([1]))
-    #             else: # maj, xor
-    #                 pred.append(pred_ecc[i] + 2)
-    # pred = torch.tensor(pred)
-    
-    pred = copy.deepcopy(pred_1)
-    
-    eq_idx = (torch.eq(pred_1, pred_2) == True).nonzero(as_tuple=True)[0]
-    # if pred_1[i] != 0  # maj, xor
-    eq_mx_idx = (pred_1[eq_idx] != 0).nonzero(as_tuple=True)[0]
-    # pred_1[i] = pred_1[i] + 2  -->  3, 4
-    pred[eq_idx[eq_mx_idx]] = pred_1[eq_idx[eq_mx_idx]] + 2
-    # if pred_1[i] == 0 PI/PI/and --> final 1
-    eq_aig_idx = (pred_1[eq_idx] == 0).nonzero(as_tuple=True)[0]
-    pred[eq_idx[eq_aig_idx]] = 1
-
-    neq_idx = (torch.eq(pred_1, pred_2) == False).nonzero(as_tuple=True)[0]
-    # if pred_1[i] == 1 and pred_2[i] == 2 shared --> 2
-    p1 = (pred_1[neq_idx] == 1).nonzero(as_tuple=True)[0]
-    p2 = (pred_2[neq_idx] == 2).nonzero(as_tuple=True)[0]
-    shared = p1[(p1.view(1, -1) == p2.view(-1, 1)).any(dim=0)]
-    pred[neq_idx[shared]] = 2
-    # else (error correction for discrepant predictions)
-    if len(p1) != len(p2) or len(p1) != len(neq_idx):
-        v, freq = torch.unique(torch.cat((p1, p2), 0), sorted=True, return_inverse=False, return_counts=True, dim=None)
-        uniq = (freq == 1).nonzero(as_tuple=True)[0]
-        ecc = v[uniq]
-        ecc_mx = (pred_ecc[neq_idx][ecc] != 0).nonzero(as_tuple=True)[0]
-        ecc_aig = (pred_ecc[neq_idx][ecc] == 0).nonzero(as_tuple=True)[0]
-        pred[neq_idx[ecc[ecc_mx]]] = pred_ecc[neq_idx][ecc][ecc_mx] + 2
-        pred[neq_idx[ecc[ecc_aig]]] = 1
-        zz = (pred == 0).nonzero(as_tuple=True)[0]
-        pred[zz] = 1
-
-    return torch.reshape(pred, (pred.shape[0], 1))  
        
-    
-@torch.no_grad()
-def test(model, data_r, data, split_idx, evaluator, subgraph_loader, datatype, device):
-    model.eval()
-
-    start_time = time.time()
-    out1, out2, out3 = model.inference(data.x, subgraph_loader, device)
-    y_pred_shared = post_processing(out1, out2)
-    y_pred_root = out3.argmax(dim=-1, keepdim=True)
-    # print("print output stats of model.inference", out1.shape, out2.shape)
-    print('The inference time is %s' % (time.time() - start_time))
-    #y_shared = data.y.squeeze(1).clone().detach()
-    #y_root = data_r.y.squeeze(1).clone().detach()
-    y_shared = data.y.clone().detach()
-    y_root = data_r.y.clone().detach()
-    
-    
-    # for i in range(y_shared.size()[-1]): # 1: and+PI+PO, 2: shared, 3: maj, 4: xor
-    #     if y_shared[i] == 0 or y_shared[i] == 5:
-    #         y_shared[i] = 1
-    # for i in range(y_root.size()[-1]):
-    #     if y_root[i] == 0 or y_root[i] == 4:
-    #         y_root[i] = 3
-    #     y_root[i] = y_root[i] - 1
-        
-    # 1: and+PI+PO, 2: shared, 3: maj, 4: xor
-    s5 = (y_shared == 5).nonzero(as_tuple=True)[0]
-    s0 = (y_shared == 0).nonzero(as_tuple=True)[0]
-    y_shared[s5] = 1
-    y_shared[s0] = 1
-    
-    r0 = (y_root == 0).nonzero(as_tuple=True)[0]
-    r4 = (y_root == 4).nonzero(as_tuple=True)[0]
-    y_root[r0] = 3
-    y_root[r4] = 3
-    y_root = y_root - 1
-    
-    y_root = torch.reshape(y_root, (y_root.shape[0], 1))
-    y_shared = torch.reshape(y_shared, (y_shared.shape[0], 1))  
-    
-    
-    # print(y_pred_root.size())
-    # print(y_pred_shared.size())
-    
-    # print(y_root.size())
-    # print(y_shared.size())
-    
-    if datatype=='train':
-        train_acc_r = evaluator.eval({
-            'y_true': y_root,#[split_idx['train']],
-            'y_pred': y_pred_root,#[split_idx['train']],
-        })['acc']
-        valid_acc_r = evaluator.eval({
-            'y_true': y_root,#[split_idx['valid']],
-            'y_pred': y_pred_root,#[split_idx['valid']],
-        })['acc']
-        test_acc_r = evaluator.eval({
-            'y_true': y_root,#[split_idx['test']],
-            'y_pred': y_pred_root,#[split_idx['test']],
-        })['acc']
-        train_acc_s = evaluator.eval({
-            'y_true': y_shared,#[split_idx['train']],
-            'y_pred': y_pred_shared,#[split_idx['train']],
-        })['acc']
-        valid_acc_s = evaluator.eval({
-            'y_true': y_shared,#[split_idx['valid']],
-            'y_pred': y_pred_shared,#[split_idx['valid']],
-        })['acc']
-        test_acc_s = evaluator.eval({
-            'y_true': y_shared,#[split_idx['test']],
-            'y_pred': y_pred_shared,#[split_idx['test']],
-        })['acc']
-        # print("print output label shape", data.y[split_idx['test']].shape)
-        return train_acc_r, valid_acc_r, test_acc_r, train_acc_s, valid_acc_s, test_acc_s
-    else:
-	#we don't have labels for node-classification
-	
-        test_acc_r = evaluator.eval({
-            'y_true': y_root,
-            'y_pred': y_pred_root,
-        })['acc']
-        test_acc_s = evaluator.eval({
-            'y_true': y_shared,
-            'y_pred': y_pred_shared
-        })['acc']
-
-        return 0, 0, test_acc_r, 0, 0, test_acc_s
-    
-@torch.no_grad()
-def test_nosampler(model, data_r, data, split_idx, evaluator, datatype, device):
-    model.eval()
-    
-    start_time = time.time()
-    out1, out2, out3 = model.forward_nosampler(data.x, data.adj_t, device)
-    y_pred_shared = post_processing(out1, out2)
-    y_pred_root = out3.argmax(dim=-1, keepdim=True)
-    print('The inference time is %s' % (time.time() - start_time))
-
-    # print("print output stats of model.inference", out1.shape, out2.shape)
-    # tensor placement
-    y_shared = data.y.squeeze(1).clone().detach().to(device)
-    y_root = data_r.y.squeeze(1).clone().detach().to(device)
-    
-    # for i in range(y_shared.size()[-1]): # 1: and+PI+PO, 2: shared, 3: maj, 4: xor
-    #     if y_shared[i] == 0 or y_shared[i] == 5:
-    #         y_shared[i] = 1
-    # for i in range(y_root.size()[-1]):
-    #     if y_root[i] == 0 or y_root[i] == 4:
-    #         y_root[i] = 3
-    #     y_root[i] = y_root[i] - 1
-    
-    s5 = (y_shared == 5).nonzero(as_tuple=True)[0]
-    s0 = (y_shared == 0).nonzero(as_tuple=True)[0]
-    y_shared[s5] = 1
-    y_shared[s0] = 1
-    
-    r0 = (y_root == 0).nonzero(as_tuple=True)[0]
-    r4 = (y_root == 4).nonzero(as_tuple=True)[0]
-    y_root[r0] = 3
-    y_root[r4] = 3
-    y_root = y_root - 1
-    
-    
-    y_root = torch.reshape(y_root, (y_root.shape[0], 1))
-    y_shared = torch.reshape(y_shared, (y_shared.shape[0], 1))  
-    
-    # print(y_pred_root.size())
-    # print(y_pred_shared.size())
-    
-    # print(y_root.size())
-    # print(y_shared.size())
-    
-    if datatype=='train':
-        train_acc_r = evaluator.eval({
-            'y_true': y_root[split_idx['train']],
-            'y_pred': y_pred_root[split_idx['train']],
-        })['acc']
-        valid_acc_r = evaluator.eval({
-            'y_true': y_root[split_idx['valid']],
-            'y_pred': y_pred_root[split_idx['valid']],
-        })['acc']
-        test_acc_r = evaluator.eval({
-            'y_true': y_root[split_idx['test']],
-            'y_pred': y_pred_root[split_idx['test']],
-        })['acc']
-        train_acc_s = evaluator.eval({
-            'y_true': y_shared[split_idx['train']],
-            'y_pred': y_pred_shared[split_idx['train']],
-        })['acc']
-        valid_acc_s = evaluator.eval({
-            'y_true': y_shared[split_idx['valid']],
-            'y_pred': y_pred_shared[split_idx['valid']],
-        })['acc']
-        test_acc_s = evaluator.eval({
-            'y_true': y_shared[split_idx['test']],
-            'y_pred': y_pred_shared[split_idx['test']],
-        })['acc']
-        # print("print output label shape", data.y[split_idx['test']].shape)
-        return train_acc_r, valid_acc_r, test_acc_r, train_acc_s, valid_acc_s, test_acc_s
-    else:
-        test_acc_r = evaluator.eval({
-            'y_true': y_root,
-            'y_pred': y_pred_root,
-        })['acc']
-        test_acc_s = evaluator.eval({
-            'y_true': y_shared,
-            'y_pred': y_pred_shared
-        })['acc']
-
-        return 0, 0, test_acc_r, 0, 0, test_acc_s 
-
+  
 def main():
+    #args for gamora
     parser = argparse.ArgumentParser(description='mult16')
     parser.add_argument('--device', type=int, default=0)
     parser.add_argument('--num_layers', type=int, default=4)
@@ -423,7 +162,7 @@ def main():
     parser.add_argument('--lr', type=float, default=0.01)
     parser.add_argument('--model_path', type=str, default='SAGE_mult8')
     
-    
+    #args for elsage
     parser.add_argument('--root', type=str, default='/home/curie/ELGraphSAGE/dataset/edgelist', help='Root directory of dataset')
     parser.add_argument('--highest_order', type=int, default=16, help='Highest order for the EdgeListDataset')
     parser.add_argument('--learning_rate', type=float, default=0.0001, help='Learning rate')
@@ -435,6 +174,7 @@ def main():
     parser.add_argument('--wandb', action='store_true', help='Enable wandb logging')
     args = parser.parse_args()
     print(args)
+    initialize_wandb(args)
     
     device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
     
@@ -471,7 +211,7 @@ def main():
         if args.epoch % 1 == 0:
             val_acc = test_el(gamora_model, elsage_model, val_loader, device, dataset)
             test_acc = test_el(gamora_model, elsage_model, test_loader, device, dataset)
-            #wandb.log({"Epoch": epoch, "Loss": loss, "Train_acc": train_acc, "Val_acc":val_acc, "Test_acc": test_acc})
+            wandb.log({"Epoch": args.epoch, "Loss": loss, "Train_acc": train_acc, "Val_acc":val_acc, "Test_acc": test_acc})
             print(f'Epoch: {args.epoch:03d}, Loss: {loss:.4f}, Train Acc: {train_acc:.4f}, Val Acc: {val_acc:.4f}, Test Acc: {test_acc:.4f}')
     
     
