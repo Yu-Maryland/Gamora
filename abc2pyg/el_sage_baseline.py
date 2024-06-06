@@ -55,44 +55,50 @@ class GraphSAGE(torch.nn.Module):
                        norm=None, dropout=0.5)
 
     
-    def forward(self, data):
+    def forward(self, data, gamora_output):
         x = data.x
+        x = torch.cat((gamora_output[0], gamora_output[1], gamora_output[2]), 1)
+
         for conv, bn in zip(self.convs, self.bns):
             x = conv(x, data.adj_t)
             x = bn(x)
             x = F.relu(x)
             x = F.dropout(x, p=self.dropout) #torch.Size([58666, hidden_dim])
-        
+       
         x = global_mean_pool(x, data.batch) # torch.Size([batch, hidden_dim])
         x = self.fc(x) # torch.Size([batch, hidden_dim])
         x = F.relu(x)
-        
+
         x = self.mlp(x)
         return x #torch.Size([batch, 16])
 
-def train(model, loader, optimizer, device, dataset):
+def train(gamora_model, model, loader, optimizer, device, dataset):
+    gamora_model.eval()
     model.train()
     total_loss = 0
     criterion = torch.nn.BCEWithLogitsLoss() #sigmoid + BCE
     for data in loader:
         data = data.to(device)
+        out1, out2, out3 = gamora_model.forward_nosampler(data.x, data.adj_t, device)
         optimizer.zero_grad()
-        out = model(data)
+        out = model(data,[out1, out2, out3])
         loss = criterion(out, data.y.reshape(-1, dataset.num_classes))
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
-    train_acc = test(model, loader, device, dataset)
+    train_acc = test(gamora_model, model, loader, device, dataset)
     return total_loss / len(loader), train_acc
 
 @torch.no_grad()
-def test(model, loader, device, dataset):
+def test(gamora_model, model, loader, device, dataset):
+    gamora_model.eval()
     model.eval()
     correct = 0
     total = 0
     for data in loader:
         data = data.to(device)
-        out = model(data)
+        out1, out2, out3 = gamora_model.forward_nosampler(data.x, data.adj_t, device)
+        out = model(data, [out1, out2, out3])
         out = torch.sigmoid(out)
         pred = (out > 0.5).float()
         correct += (pred == data.y.reshape(-1, dataset.num_classes)).sum().item()
