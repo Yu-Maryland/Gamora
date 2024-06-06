@@ -6,9 +6,9 @@ from torch.nn import Linear, BatchNorm1d
 
 from torch_geometric.data import Data
 import torch_geometric.transforms as T
-from torch_geometric.nn import GCNConv, SAGEConv
+from torch_geometric.nn import SAGEConv, global_mean_pool, BatchNorm
 
-from dataset_prep import PygNodePropPredDataset, Evaluator
+from dataset_prep import PygNodePropPredDataset, Evaluator, EdgeListDataset
 from torch_geometric.loader import NeighborSampler
 
 from logger import Logger
@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 from mlxtend.plotting import plot_confusion_matrix
 import time
 import copy
+from el_sage_baseline import GraphSAGE
 
 os.environ["CUDA_VISIBLE_DEVICES"]=""
 #torch.set_num_threads(80)
@@ -238,7 +239,12 @@ def post_processing(out1, out2):
 
     return torch.reshape(pred, (pred.shape[0], 1))  
        
-
+@torch.no_grad()
+def test_for_elsage(model, data_r, data, subgraph_loader, device):
+    model.eval()
+    out1, out2, out3 = model.inference(data.x, subgraph_loader, device)
+    return out1, out2, out3
+    
 @torch.no_grad()
 def test(model, data_r, data, split_idx, evaluator, subgraph_loader, datatype, device):
     model.eval()
@@ -249,8 +255,10 @@ def test(model, data_r, data, split_idx, evaluator, subgraph_loader, datatype, d
     y_pred_root = out3.argmax(dim=-1, keepdim=True)
     # print("print output stats of model.inference", out1.shape, out2.shape)
     print('The inference time is %s' % (time.time() - start_time))
-    y_shared = data.y.squeeze(1).clone().detach()
-    y_root = data_r.y.squeeze(1).clone().detach()
+    #y_shared = data.y.squeeze(1).clone().detach()
+    #y_root = data_r.y.squeeze(1).clone().detach()
+    y_shared = data.y.clone().detach()
+    y_root = data_r.y.clone().detach()
     
     
     # for i in range(y_shared.size()[-1]): # 1: and+PI+PO, 2: shared, 3: maj, 4: xor
@@ -285,32 +293,34 @@ def test(model, data_r, data, split_idx, evaluator, subgraph_loader, datatype, d
     
     if datatype=='train':
         train_acc_r = evaluator.eval({
-            'y_true': y_root[split_idx['train']],
-            'y_pred': y_pred_root[split_idx['train']],
+            'y_true': y_root,#[split_idx['train']],
+            'y_pred': y_pred_root,#[split_idx['train']],
         })['acc']
         valid_acc_r = evaluator.eval({
-            'y_true': y_root[split_idx['valid']],
-            'y_pred': y_pred_root[split_idx['valid']],
+            'y_true': y_root,#[split_idx['valid']],
+            'y_pred': y_pred_root,#[split_idx['valid']],
         })['acc']
         test_acc_r = evaluator.eval({
-            'y_true': y_root[split_idx['test']],
-            'y_pred': y_pred_root[split_idx['test']],
+            'y_true': y_root,#[split_idx['test']],
+            'y_pred': y_pred_root,#[split_idx['test']],
         })['acc']
         train_acc_s = evaluator.eval({
-            'y_true': y_shared[split_idx['train']],
-            'y_pred': y_pred_shared[split_idx['train']],
+            'y_true': y_shared,#[split_idx['train']],
+            'y_pred': y_pred_shared,#[split_idx['train']],
         })['acc']
         valid_acc_s = evaluator.eval({
-            'y_true': y_shared[split_idx['valid']],
-            'y_pred': y_pred_shared[split_idx['valid']],
+            'y_true': y_shared,#[split_idx['valid']],
+            'y_pred': y_pred_shared,#[split_idx['valid']],
         })['acc']
         test_acc_s = evaluator.eval({
-            'y_true': y_shared[split_idx['test']],
-            'y_pred': y_pred_shared[split_idx['test']],
+            'y_true': y_shared,#[split_idx['test']],
+            'y_pred': y_pred_shared,#[split_idx['test']],
         })['acc']
         # print("print output label shape", data.y[split_idx['test']].shape)
         return train_acc_r, valid_acc_r, test_acc_r, train_acc_s, valid_acc_s, test_acc_s
     else:
+	#we don't have labels for node-classification
+	
         test_acc_r = evaluator.eval({
             'y_true': y_root,
             'y_pred': y_pred_root,
@@ -403,206 +413,66 @@ def test_nosampler(model, data_r, data, split_idx, evaluator, datatype, device):
             'y_pred': y_pred_shared
         })['acc']
 
-        return 0, 0, test_acc_r, 0, 0, test_acc_s
-
-
-
-def confusion_matrix_plot(model, data_r, data, subgraph_loader, device, datatype, save_file, bit_train, bit_test):
-    model.eval()
-
-    out1, out2, out3 = model.inference(data.x, subgraph_loader, device)
-    # print("print output stats of model.inference", out1.shape, out2.shape)
-    y_pred_shared = post_processing(out1, out2)
-    y_pred_root = out3.argmax(dim=-1, keepdim=True)
-    
-    y_shared = data.y.squeeze(1).clone().detach()
-    y_root = data_r.y.squeeze(1).clone().detach()
-    
-    # for i in range(y_shared.size()[-1]): # 1: and+PI+PO, 2: shared, 3: maj, 4: xor
-    #     if y_shared[i] == 0 or y_shared[i] == 5:
-    #         y_shared[i] = 1
-    # for i in range(y_root.size()[-1]):
-    #     if y_root[i] == 0 or y_root[i] == 4:
-    #         y_root[i] = 3
-    #     y_root[i] = y_root[i] - 1
-        
-    s5 = (y_shared == 5).nonzero(as_tuple=True)[0]
-    s0 = (y_shared == 0).nonzero(as_tuple=True)[0]
-    y_shared[s5] = 1
-    y_shared[s0] = 1
-    
-    r0 = (y_root == 0).nonzero(as_tuple=True)[0]
-    r4 = (y_root == 4).nonzero(as_tuple=True)[0]
-    y_root[r0] = 3
-    y_root[r4] = 3
-    y_root = y_root - 1
-    
-    y_root = torch.reshape(y_root, (y_root.shape[0], 1))
-    y_shared = torch.reshape(y_shared, (y_shared.shape[0], 1))  
-
-    if save_file == True:
-        #pd.DataFrame(y_pred[split_idx[datatype]].numpy()).to_csv('pred_' + str(datatype) + '.csv')
-        #pd.DataFrame(data.y[split_idx[datatype]].numpy()).to_csv('label_' + str(datatype) + '.csv')
-        pd.DataFrame(y_pred_root.numpy()).to_csv('pred_root_plain_' + str(datatype) + '_' + str(bit_train) + 'to' + str(bit_test) + '.csv', index = False, header = False)
-        pd.DataFrame(y_root.numpy()).to_csv('label_root_plain_' + str(datatype) + '_' + str(bit_train) + 'to' + str(bit_test) + '.csv', index = False, header = False)
-        pd.DataFrame(y_pred_shared.numpy()).to_csv('pred_shared_plain_' + str(datatype) + '_' + str(bit_train) + 'to' + str(bit_test) + '.csv', index = False, header = False)
-        pd.DataFrame(y_shared.numpy()).to_csv('label_shared_plain_' + str(datatype) + '_' + str(bit_train) + 'to' + str(bit_test) + '.csv', index = False, header = False)
-        
-    # plot confusion matrix for shared nodes
-    conf_matrix = confusion_matrix(y_shared.numpy(), y_pred_shared.numpy())
-    fig, ax = plot_confusion_matrix(conf_mat=conf_matrix, figsize=(6, 6), cmap=plt.cm.Greys)
-    ax.set_xticklabels(['', '0', '1', '2', '3'], fontsize=22)
-    ax.set_yticklabels(['', '0', '1', '2', '3'], fontsize=22)
-    font = {'size':22}
-
-    plt.rc('font', **font)
-    plt.xlabel('Predictions', fontsize=22)
-    plt.ylabel('Actuals', fontsize=22)
-    #plt.title('Confusion Matrix', fontsize=25)
-    plt.savefig('confusion_matrix_plain_shared_' + str(datatype) + '_' + str(bit_train) + 'to' + str(bit_test) + '.pdf', bbox_inches = 'tight',pad_inches = 0)
-    
-    # plot confusion matrix for roots
-    conf_matrix = confusion_matrix(y_root.numpy(), y_pred_root.numpy())
-    fig, ax = plot_confusion_matrix(conf_mat=conf_matrix, figsize=(6, 6), cmap=plt.cm.Greys)
-    ax.set_xticklabels(['', '0', '1', '2'], fontsize=22)
-    ax.set_yticklabels(['', '0', '1', '2'], fontsize=22)
-    font = {'size':22}
-
-    plt.rc('font', **font)
-    plt.xlabel('Predictions', fontsize=22)
-    plt.ylabel('Actuals', fontsize=22)
-    #plt.title('Confusion Matrix', fontsize=25)
-    plt.savefig('confusion_matrix_plain_root_' + str(datatype) + '_' + str(bit_train) + 'to' + str(bit_test) + '.pdf', bbox_inches = 'tight',pad_inches = 0)
-  
-  
-  
-def write_txt(model, data, subgraph_loader, device, file_name, num_class):
-    model.eval()
-    out1, out2, out3 = model.inference(data.x, subgraph_loader, device)
-    
-    y_pred_shared = post_processing(out1, out2)
-    y_pred_root = out3.argmax(dim=-1, keepdim=True)
-    
-    # y_pred = post_processing(out1, out2, out3)
-    # print(y_pred)
-    
-    y_pred_list = y_pred_shared.flatten().numpy()
-    f = open(file_name + '_plain_shared.txt', 'w')
-    for i in range(num_class):
-        line = np.where(y_pred_list == i)[0]
-        # print(line)
-        f.write(','.join(str(ind) for ind in line))
-        f.write('\n')
-    f.close()
-    
-    y_pred_list = y_pred_root.flatten().numpy()
-    f = open(file_name + '_plain_root.txt', 'w')
-    for i in range(5):
-        line = np.where(y_pred_list == i)[0]
-        # print(line)
-        f.write(','.join(str(ind) for ind in line))
-        f.write('\n')
-    f.close()
-      
+        return 0, 0, test_acc_r, 0, 0, test_acc_s 
 
 def main():
     parser = argparse.ArgumentParser(description='mult16')
-    parser.add_argument('--bits_test', type=int, default=32)
-    parser.add_argument('--datagen_test', type=int, default=0,
-		help="0=multiplier generator, 1=adder generator, 2=loading design")
-    # (0)(1) require bits as inputs; (2) requires designfile as input
-    parser.add_argument('--multilabel', type=int, default=1,
-        help="0=5 classes; 1=6 classes with shared xor/maj as a new class; 2=multihot representation")
-    parser.add_argument('--num_class', type=int, default=6)
-    parser.add_argument('--designfile', '-f', type=str, default='')
-    parser.add_argument('--designfile_test', '-ft', type=str, default='')
     parser.add_argument('--device', type=int, default=0)
-    parser.add_argument('--log_steps', type=int, default=1)
     parser.add_argument('--num_layers', type=int, default=4)
     parser.add_argument('--hidden_channels', type=int, default=32)
     parser.add_argument('--dropout', type=float, default=0.5)
     parser.add_argument('--lr', type=float, default=0.01)
-    parser.add_argument('--epochs', type=int, default=20)
-    parser.add_argument('--runs', type=int, default=2)
-    parser.add_argument('--design_copies', type=int, default=1)
     parser.add_argument('--model_path', type=str, default='SAGE_mult8')
-    parser.add_argument('--mapped', type=int, default=0)
     args = parser.parse_args()
     print(args)
 
-    device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
+    parser_el = argparse.ArgumentParser(description='ELGraphSAGE Training')
+    parser_el.add_argument('--root', type=str, default='/home/curie/ELGraphSAGE/dataset/edgelist', help='Root directory of dataset')
+    parser_el.add_argument('--highest_order', type=int, default=16, help='Highest order for the EdgeListDataset')
+    parser_el.add_argument('--learning_rate', type=float, default=0.0001, help='Learning rate')
+    parser_el.add_argument('--epochs', type=int, default=500, help='Number of epochs')
+    parser_el.add_argument('--num_layers', type=int, default=4)
+    parser_el.add_argument('--dropout', type=float, default=0.5)
+    parser_el.add_argument('--hidden_dim', type=int, default=75, help='Hidden dimension size')
+    parser_el.add_argument('--batch_size', type=int, default=32, help='Batch size')
+    parser_el.add_argument('--wandb', action='store_true', help='Enable wandb logging')
+    args_el = parser_el.parse_args()
+    print(args_el)
     
+    device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
     
     ### evaluation dataset loading
     logger_eval_r = Logger(1, args)
     logger_eval = Logger(1, args)
-    
-    if args.design_copies > 1:
-        suffix = '_batch_' + str(args.design_copies)
-    else:
-        suffix = ''
         
-    if args.datagen_test == 0:
-        prefix = 'mult'
-    elif args.datagen_test == 1:
-        prefix = 'adder'
-    if args.mapped == 1:
-        suffix_m ="_7nm_mapped"
-    else:
-        suffix_m = ''
-        
-    design_name = prefix + str(args.bits_test) + suffix_m
-    print("Evaluation on %s" % design_name + suffix)
-    dataset_r = PygNodePropPredDataset(name = design_name + '_root' + suffix)
-    data_r = dataset_r[0]
-    data_r = T.ToSparseTensor()(data_r)
+
+    dataset_r = EdgeListDataset(root = '/home/curie/ELGraphSAGE/dataset/edgelist', highest_order = 16)
+    data_r = dataset_r[0] #Data(x=[1072, 4], edge_index=[2, 1040], y=[16], adj_t=[1072, 1072, nnz=1040])
+    data_r = T.ToSparseTensor()(data_r) #Data(x=[1072, 4], y=[16], adj_t=[1072, 1072, nnz=1040])
     
-    dataset = PygNodePropPredDataset(name = design_name + '_shared' + suffix)
-    data = dataset[0] #Data(num_nodes=7968, edge_index=[2, 15808], x=[7968, 4], y=[7968, 1])
-    data = T.ToSparseTensor()(data) #Data(num_nodes=7968, x=[7968, 4], y=[7968, 1], adj_t=[7968, 7968, nnz=15808])
+
+    dataset = EdgeListDataset(root = '/home/curie/ELGraphSAGE/dataset/edgelist', highest_order = 16)
+    data = dataset[0]
+    data = T.ToSparseTensor()(data)
     subgraph_loader = NeighborSampler(data.adj_t, node_idx=None, sizes=[-1],
                                   batch_size=1024, shuffle=False,
                                   )
     
-    split_idx = dataset.get_idx_split()
+    #split_idx = dataset.get_idx_split()
+    split_idx = 0
     # tensor placement
     data_r = data_r.to(device)
     data = data.to(device)
     
-    model = SAGE_MULT(data.num_features, args.hidden_channels,
+    gamora_model = SAGE_MULT(data.num_features, args.hidden_channels,
                      3, args.num_layers,
                      args.dropout).to(device)    
-    model.load_state_dict(torch.load(args.model_path))
-    model.eval()
+    gamora_model.load_state_dict(torch.load(args.model_path))
     
-    evaluator = Evaluator(name = design_name + '_shared' + suffix)
 
-    for run_1 in range(1):
-        for epoch in range(1):
-            datatype='test'
-            # This one uses neighbor sampler
-            result = test(model, data_r, data, split_idx, evaluator, subgraph_loader, datatype, device)
-            #result = test_nosampler(model, data_r, data, split_idx, evaluator, datatype, device)
-            logger_eval_r.add_result(run_1, result[:3])
-            logger_eval.add_result(run_1, result[3:])
-            if epoch % args.log_steps == 0:
-                train_acc_r, valid_acc_r, test_acc_r, train_acc_s, valid_acc_s, test_acc_s = result
-                print(f'Run: {run_1 + 1:02d}, '
-                      f'Epoch: {epoch:02d}, '
-                      f'[Root Model] Train: {100 * train_acc_r:.2f}%, '
-                      f'[Root Model] Valid: {100 * valid_acc_r:.2f}% '
-                      f'[Root Model] Test: {100 * test_acc_r:.2f}% '
-                      f'[Shared Model] Train: {100 * train_acc_s:.2f}%, '
-                      f'[Shared Model] Valid: {100 * valid_acc_s:.2f}% '
-                      f'[Shared Model] Test: {100 * test_acc_s:.2f}%')
-                   
-    # confusion_matrix_plot(model, data_r, data, subgraph_loader, device, datatype='test', save_file=True, bit_train = int(args.model_path[-1]), bit_test = args.bits_test)
+    out1, out2, out3 = test_for_elsage(gamora_model, data_r, data, subgraph_loader, device) #[1072, 3] each
     
-    # file_name = 'pred_test_rowclass'
-    # write_txt(model, data, subgraph_loader, device, file_name, args.num_class)
-    logger_eval_r.print_statistics()
-    logger_eval.print_statistics()
-
+    
 
 if __name__ == "__main__":
     main()
