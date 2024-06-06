@@ -22,6 +22,10 @@ from mlxtend.plotting import plot_confusion_matrix
 import time
 import copy
 from el_sage_baseline import GraphSAGE
+from el_sage_baseline import train as train_el
+from el_sage_baseline import test as test_el
+from sklearn.model_selection import train_test_split
+from torch_geometric.loader import DataLoader
 
 os.environ["CUDA_VISIBLE_DEVICES"]=""
 #torch.set_num_threads(80)
@@ -242,7 +246,8 @@ def post_processing(out1, out2):
 @torch.no_grad()
 def test_for_elsage(model, data_r, data, subgraph_loader, device):
     model.eval()
-    out1, out2, out3 = model.inference(data.x, subgraph_loader, device)
+    out1, out2, out3 = model.forward_nosampler(data.x, data.adj_t, device)
+    #out1, out2, out3 = model.inference(data.x, subgraph_loader, device)
     return out1, out2, out3
     
 @torch.no_grad()
@@ -415,6 +420,52 @@ def test_nosampler(model, data_r, data, split_idx, evaluator, datatype, device):
 
         return 0, 0, test_acc_r, 0, 0, test_acc_s 
 
+
+def main_el(out1, out2, out3):
+    parser = argparse.ArgumentParser(description='ELGraphSAGE Training')
+    parser.add_argument('--root', type=str, default='/home/curie/ELGraphSAGE/dataset/edgelist', help='Root directory of dataset')
+    parser.add_argument('--highest_order', type=int, default=16, help='Highest order for the EdgeListDataset')
+    parser.add_argument('--learning_rate', type=float, default=0.0001, help='Learning rate')
+    parser.add_argument('--epochs', type=int, default=500, help='Number of epochs')
+    parser.add_argument('--num_layers', type=int, default=4)
+    parser.add_argument('--dropout', type=float, default=0.5)
+    parser.add_argument('--hidden_dim', type=int, default=75, help='Hidden dimension size')
+    parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
+    parser.add_argument('--wandb', action='store_true', help='Enable wandb logging')
+    args = parser.parse_args()
+
+    root = args.root
+    lr = args.learning_rate
+    epochs = args.epochs
+    hidden_dim = args.hidden_dim
+    
+    dataset = EdgeListDataset(root=root, highest_order=args.highest_order)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # Split dataset into training, validation, and test sets
+    train_dataset, test_dataset = train_test_split(dataset, test_size=0.2, random_state=42)
+    train_dataset, val_dataset = train_test_split(train_dataset, test_size=0.2, random_state=42)
+
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+    
+    model = GraphSAGE(in_dim=dataset[0].num_node_features, 
+                 hidden_dim=hidden_dim, 
+                 out_dim=dataset.num_classes,
+                 num_layers=args.num_layers,
+                 dropout=args.dropout
+                 ).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr)#, weight_decay=5e-4)
+    
+    for epoch in range(1, epochs + 1):
+        loss, train_acc = train_el(model, train_loader, optimizer, device, dataset)
+        if epoch % 1 == 0:
+            val_acc = test_el(model, val_loader, device, dataset)
+            test_acc = test_el(model, test_loader, device, dataset)
+            #wandb.log({"Epoch": epoch, "Loss": loss, "Train_acc": train_acc, "Val_acc":val_acc, "Test_acc": test_acc})
+            print(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, Train Acc: {train_acc:.4f}, Val Acc: {val_acc:.4f}, Test Acc: {test_acc:.4f}')
+
 def main():
     parser = argparse.ArgumentParser(description='mult16')
     parser.add_argument('--device', type=int, default=0)
@@ -425,32 +476,15 @@ def main():
     parser.add_argument('--model_path', type=str, default='SAGE_mult8')
     args = parser.parse_args()
     print(args)
-
-    parser_el = argparse.ArgumentParser(description='ELGraphSAGE Training')
-    parser_el.add_argument('--root', type=str, default='/home/curie/ELGraphSAGE/dataset/edgelist', help='Root directory of dataset')
-    parser_el.add_argument('--highest_order', type=int, default=16, help='Highest order for the EdgeListDataset')
-    parser_el.add_argument('--learning_rate', type=float, default=0.0001, help='Learning rate')
-    parser_el.add_argument('--epochs', type=int, default=500, help='Number of epochs')
-    parser_el.add_argument('--num_layers', type=int, default=4)
-    parser_el.add_argument('--dropout', type=float, default=0.5)
-    parser_el.add_argument('--hidden_dim', type=int, default=75, help='Hidden dimension size')
-    parser_el.add_argument('--batch_size', type=int, default=32, help='Batch size')
-    parser_el.add_argument('--wandb', action='store_true', help='Enable wandb logging')
-    args_el = parser_el.parse_args()
-    print(args_el)
     
     device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
     
     ### evaluation dataset loading
-    logger_eval_r = Logger(1, args)
-    logger_eval = Logger(1, args)
-        
-
     dataset_r = EdgeListDataset(root = '/home/curie/ELGraphSAGE/dataset/edgelist', highest_order = 16)
+   
     data_r = dataset_r[0] #Data(x=[1072, 4], edge_index=[2, 1040], y=[16], adj_t=[1072, 1072, nnz=1040])
     data_r = T.ToSparseTensor()(data_r) #Data(x=[1072, 4], y=[16], adj_t=[1072, 1072, nnz=1040])
     
-
     dataset = EdgeListDataset(root = '/home/curie/ELGraphSAGE/dataset/edgelist', highest_order = 16)
     data = dataset[0]
     data = T.ToSparseTensor()(data)
@@ -458,8 +492,7 @@ def main():
                                   batch_size=1024, shuffle=False,
                                   )
     
-    #split_idx = dataset.get_idx_split()
-    split_idx = 0
+    split_idx = 0 #random
     # tensor placement
     data_r = data_r.to(device)
     data = data.to(device)
@@ -469,8 +502,9 @@ def main():
                      args.dropout).to(device)    
     gamora_model.load_state_dict(torch.load(args.model_path))
     
-
     out1, out2, out3 = test_for_elsage(gamora_model, data_r, data, subgraph_loader, device) #[1072, 3] each
+    print(out1.shape)
+    main_el(out1, out2, out3)
     
     
 
