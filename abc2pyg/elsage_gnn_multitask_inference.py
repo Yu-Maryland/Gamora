@@ -9,7 +9,6 @@ import torch_geometric.transforms as T
 from torch_geometric.nn import SAGEConv, global_mean_pool, BatchNorm
 
 from dataset_prep import PygNodePropPredDataset, Evaluator, EdgeListDataset
-from torch_geometric.loader import NeighborSampler
 
 from logger import Logger
 from tqdm import tqdm
@@ -47,7 +46,7 @@ def initialize_wandb(args):
     else:
         wandb.init(mode="disabled")
         
-os.environ["CUDA_VISIBLE_DEVICES"]=""
+
 class SAGE_MULT(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, out_channels, num_layers,
                  dropout):
@@ -150,8 +149,7 @@ class SAGE_MULT(torch.nn.Module):
 
         return x1, x2, x3  
      
-       
-  
+    
 def main():
     #args for gamora
     parser = argparse.ArgumentParser(description='mult16')
@@ -173,11 +171,11 @@ def main():
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
     parser.add_argument('--wandb', action='store_true', help='Enable wandb logging')
     args = parser.parse_args()
-    print(args)
     initialize_wandb(args)
     
     device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
-    
+    #device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(device)
     ### evaluation dataset loading
     dataset = EdgeListDataset(root = '/home/curie/ELGraphSAGE/dataset/edgelist', highest_order = 16)
     data = dataset[0]
@@ -195,10 +193,11 @@ def main():
     
     gamora_model = SAGE_MULT(data.num_features, args.hidden_channels,
                      3, args.num_layers,
-                     args.dropout).to(device)    
+                     args.dropout).to(device)
+
     gamora_model.load_state_dict(torch.load(args.model_path))
     
-    elsage_model = GraphSAGE(in_dim=9,#dataset[0].num_node_features,  # x + gamora_output
+    elsage_model = GraphSAGE(in_dim=13,#dataset[0].num_node_features, #9 for gamora_output
                  hidden_dim=args.hidden_dim, 
                  out_dim=dataset.num_classes,
                  num_layers=args.num_layers,

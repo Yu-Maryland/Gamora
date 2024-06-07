@@ -78,8 +78,10 @@ def train(gamora_model, model, loader, optimizer, device, dataset):
     total_loss = 0
     criterion = torch.nn.BCEWithLogitsLoss() #sigmoid + BCE
     for data in loader:
+        print(data.x.size())
         data = data.to(device)
-        out1, out2, out3 = gamora_model.forward_nosampler(data.x, data.adj_t, device)
+        out1, out2, out3, _ = gamora_model(data.x)
+        print(out1.shape())
         optimizer.zero_grad()
         out = model(data,[out1, out2, out3])
         loss = criterion(out, data.y.reshape(-1, dataset.num_classes))
@@ -97,7 +99,7 @@ def test(gamora_model, model, loader, device, dataset):
     total = 0
     for data in loader:
         data = data.to(device)
-        out1, out2, out3 = gamora_model.forward_nosampler(data.x, data.adj_t, device)
+        out1, out2, out3, _ = gamora_model(data.x)
         out = model(data, [out1, out2, out3])
         out = torch.sigmoid(out)
         pred = (out > 0.5).float()
