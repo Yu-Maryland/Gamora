@@ -20,12 +20,12 @@ import matplotlib.pyplot as plt
 from mlxtend.plotting import plot_confusion_matrix
 import time
 import copy
-from el_sage_baseline import GraphSAGE
-from el_sage_baseline import train as train_el
-from el_sage_baseline import test as test_el
+from el_sage_hoga_baseline import GraphSAGE
+from el_sage_hoga_baseline import train as train_el
+from el_sage_hoga_baseline import test as test_el
 from sklearn.model_selection import train_test_split
 from torch_geometric.loader import DataLoader
-
+from hoga_model import HOGA
 
 import wandb
 def initialize_wandb(args):
@@ -149,18 +149,24 @@ class SAGE_MULT(torch.nn.Module):
 
         return x1, x2, x3  
      
-    
+       
+  
 def main():
-    #args for gamora
-    parser = argparse.ArgumentParser(description='mult16')
+    #args for HOGA
+    parser = argparse.ArgumentParser(description='elsage_hoga')
     parser.add_argument('--device', type=int, default=0)
-    parser.add_argument('--num_layers', type=int, default=4)
-    parser.add_argument('--hidden_channels', type=int, default=32)
+
     parser.add_argument('--dropout', type=float, default=0.5)
     parser.add_argument('--lr', type=float, default=0.01)
-    parser.add_argument('--model_path', type=str, default='SAGE_mult8')
+    parser.add_argument('--model_path', type=str, default='models/hoga_mult8_mult.pt')
+    
+    parser.add_argument('--hoga_hidden_channels', type=int, default=256)
+    parser.add_argument('--hoga_num_layers', type=int, default=1)
+    parser.add_argument('--num_hops', type=int, default=8)
+    parser.add_argument('--heads', type=int, default=8)
     
     #args for elsage
+    parser.add_argument('--num_layers', type=int, default=4)
     parser.add_argument('--root', type=str, default='/home/curie/ELGraphSAGE/dataset/edgelist', help='Root directory of dataset')
     parser.add_argument('--highest_order', type=int, default=16, help='Highest order for the EdgeListDataset')
     parser.add_argument('--learning_rate', type=float, default=0.0001, help='Learning rate')
@@ -177,7 +183,7 @@ def main():
     #device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(device)
     ### evaluation dataset loading
-    dataset = EdgeListDataset(root = args.root, highest_order = args.highest_order)
+    dataset = EdgeListDataset(root = '/home/curie/ELGraphSAGE/dataset/edgelist', highest_order = 16)
     data = dataset[0]
     data = T.ToSparseTensor()(data)
     split_idx = 0 #random
@@ -191,11 +197,9 @@ def main():
     
     data = data.to(device)
     
-    gamora_model = SAGE_MULT(data.num_features, args.hidden_channels,
-                     3, args.num_layers,
-                     args.dropout).to(device)
-
-    gamora_model.load_state_dict(torch.load(args.model_path))
+    gamora_model = HOGA(data.num_features, args.hoga_hidden_channels, 3, args.hoga_num_layers,
+            args.dropout, num_hops=args.num_hops+1, heads=args.heads).to(device)
+    gamora_model.load_state_dict(torch.load(args.model_path)['model_state_dict'])
     
     elsage_model = GraphSAGE(in_dim=13,#dataset[0].num_node_features, #9 for gamora_output
                  hidden_dim=args.hidden_dim, 
