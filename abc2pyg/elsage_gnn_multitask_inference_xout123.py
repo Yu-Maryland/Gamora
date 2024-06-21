@@ -20,9 +20,9 @@ import matplotlib.pyplot as plt
 from mlxtend.plotting import plot_confusion_matrix
 import time
 import copy
-from el_sage_baseline import GraphSAGE
-from el_sage_baseline import train as train_el
-from el_sage_baseline import test as test_el
+from el_sage_baseline_xout123 import GraphSAGE
+from el_sage_baseline_xout123 import train as train_el
+from el_sage_baseline_xout123 import test as test_el
 from sklearn.model_selection import train_test_split
 from torch_geometric.loader import DataLoader
 
@@ -157,7 +157,6 @@ def main():
     parser.add_argument('--num_layers', type=int, default=4)
     parser.add_argument('--hidden_channels', type=int, default=32)
     parser.add_argument('--dropout', type=float, default=0.5)
-    parser.add_argument('--lr', type=float, default=0.01)
     parser.add_argument('--model_path', type=str, default='SAGE_mult8')
     
     #args for elsage
@@ -203,7 +202,7 @@ def main():
                  num_layers=args.num_layers,
                  dropout=args.dropout
                  ).to(device)
-    optimizer = torch.optim.Adam(elsage_model.parameters(), args.lr)#, weight_decay=5e-4)
+    optimizer = torch.optim.Adam(elsage_model.parameters(), args.learning_rate)#, weight_decay=5e-4)
     
     for args.epoch in range(1, args.epochs + 1):
         loss, train_acc = train_el(gamora_model, elsage_model, train_loader, optimizer, device, dataset)
