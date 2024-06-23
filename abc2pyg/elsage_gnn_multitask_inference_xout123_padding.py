@@ -9,7 +9,7 @@ import torch_geometric.transforms as T
 from torch_geometric.nn import SAGEConv, global_mean_pool, BatchNorm
 
 from dataset_prep import PygNodePropPredDataset, Evaluator, EdgeListDataset
-
+from dataset_prep.dataloader_padding import DataLoader, Custom_Collater
 from logger import Logger
 from tqdm import tqdm
 import os
@@ -20,12 +20,12 @@ import matplotlib.pyplot as plt
 from mlxtend.plotting import plot_confusion_matrix
 import time
 import copy
-from elsage.el_sage_baseline_out123 import GraphSAGE
-from elsage.el_sage_baseline_out123 import train as train_el
-from elsage.el_sage_baseline_out123 import test as test_el
+from elsage.el_sage_baseline_xout123_padding import GraphSAGE
+from elsage.el_sage_baseline_xout123_padding import train as train_el
+from elsage.el_sage_baseline_xout123_padding import test as test_el
 from sklearn.model_selection import train_test_split
-from torch_geometric.loader import DataLoader
-
+#from torch_geometric.loader import DataLoader
+from datetime import datetime
 
 import wandb
 def initialize_wandb(args):
@@ -160,7 +160,7 @@ def main():
     parser.add_argument('--model_path', type=str, default='SAGE_mult8')
     
     #args for elsage
-    parser.add_argument('--root', type=str, default='/home/curie/ELGraphSAGE/dataset/edgelist', help='Root directory of dataset')
+    parser.add_argument('--root', type=str, default='/home/curie/masGen/DataGen/dataset16', help='Root directory of dataset')
     parser.add_argument('--highest_order', type=int, default=16, help='Highest order for the EdgeListDataset')
     parser.add_argument('--learning_rate', type=float, default=0.0001, help='Learning rate')
     parser.add_argument('--epochs', type=int, default=500, help='Number of epochs')
@@ -184,34 +184,40 @@ def main():
     train_dataset, test_dataset = train_test_split(dataset, test_size=0.2, random_state=42)
     train_dataset, val_dataset = train_test_split(train_dataset, test_size=0.2, random_state=42)
 
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+    train_loader = DataLoader(dataset, train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_loader = DataLoader(dataset, val_dataset, batch_size=args.batch_size, shuffle=False)
+    test_loader = DataLoader(dataset, test_dataset, batch_size=args.batch_size, shuffle=False)
     
     data = data.to(device)
     
     gamora_model = SAGE_MULT(data.num_features, args.hidden_channels,
                      3, args.num_layers,
                      args.dropout).to(device)
-
     gamora_model.load_state_dict(torch.load(args.model_path))
-    
-    elsage_model = GraphSAGE(in_dim=9,#dataset[0].num_node_features, #9 for gamora_output
+    max_num_nodes = Custom_Collater.find_max_num_nodes(dataset, dataset)
+    elsage_model = GraphSAGE(in_dim=13,#dataset[0].num_node_features, #9 for gamora_output
                  hidden_dim=args.hidden_dim, 
                  out_dim=dataset.num_classes,
+                 max_num_nodes = max_num_nodes,
                  num_layers=args.num_layers,
                  dropout=args.dropout
                  ).to(device)
-    optimizer = torch.optim.Adam(elsage_model.parameters(), args.learning_rate)#, weight_decay=5e-4)
+    optimizer = torch.optim.Adam(elsage_model.parameters(), args.learning_rate)#, weight_decay=5e-4d
     
-    for args.epoch in range(1, args.epochs + 1):
-        loss, train_acc = train_el(gamora_model, elsage_model, train_loader, optimizer, device, dataset)
-        if args.epoch % 1 == 0:
-            val_acc = test_el(gamora_model, elsage_model, val_loader, device, dataset)
-            test_acc = test_el(gamora_model, elsage_model, test_loader, device, dataset)
-            wandb.log({"Epoch": args.epoch, "Loss": loss, "Train_acc": train_acc, "Val_acc":val_acc, "Test_acc": test_acc})
-            print(f'Epoch: {args.epoch:03d}, Loss: {loss:.4f}, Train Acc: {train_acc:.4f}, Val Acc: {val_acc:.4f}, Test Acc: {test_acc:.4f}')
-    
+    for epoch in range(1, args.epochs + 1):
+        loss, train_acc, train_all_bits = train_el(gamora_model, elsage_model, train_loader, optimizer, device, dataset)
+        if epoch % 1 == 0:
+            val_acc, val_acc_all_bits = test_el(gamora_model, elsage_model, val_loader, device, dataset)
+            test_acc, test_acc_all_bits = test_el(gamora_model, elsage_model, test_loader, device, dataset)
+            wandb.log({"Epoch": epoch, "Loss": loss, "Train_acc": train_acc, "Train_acc_all_bits": train_all_bits, 
+                       "Val_acc":val_acc, "Test_acc": test_acc, "Val_acc_all_bits":val_acc_all_bits, "Test_acc": test_acc_all_bits})
+            print(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, Train Acc: {train_acc:.4f}, Val Acc: {val_acc:.4f}, Test Acc: {test_acc:.4f}, Train acc all bits: {train_all_bits:.4f}, Val acc all bits: {val_acc_all_bits:.4f}, Test acc all bits: {test_acc_all_bits:.4f}')
+            
+    #save checkpoint
+    current_time = datetime.now().strftime('%m-%d-%Y_%H-%M-%S')
+    model_path = f'models/model_xout123_padding_{current_time}.pt'
+    torch.save(elsage_model.state_dict(), model_path)
+    print(f'Model saved to {model_path}')
     
 if __name__ == "__main__":
     main()

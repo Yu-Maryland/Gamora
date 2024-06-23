@@ -20,9 +20,9 @@ import matplotlib.pyplot as plt
 from mlxtend.plotting import plot_confusion_matrix
 import time
 import copy
-from el_sage_hoga_baseline import GraphSAGE
-from el_sage_hoga_baseline import train as train_el
-from el_sage_hoga_baseline import test as test_el
+from elsage.el_sage_hoga_baseline import GraphSAGE
+from elsage.el_sage_hoga_baseline import train as train_el
+from elsage.el_sage_hoga_baseline import test as test_el
 from sklearn.model_selection import train_test_split
 from torch_geometric.loader import DataLoader
 from hoga_model import HOGA

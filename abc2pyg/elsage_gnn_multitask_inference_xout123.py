@@ -20,9 +20,9 @@ import matplotlib.pyplot as plt
 from mlxtend.plotting import plot_confusion_matrix
 import time
 import copy
-from el_sage_baseline_xout123 import GraphSAGE
-from el_sage_baseline_xout123 import train as train_el
-from el_sage_baseline_xout123 import test as test_el
+from elsage.el_sage_baseline_xout123 import GraphSAGE
+from elsage.el_sage_baseline_xout123 import train as train_el
+from elsage.el_sage_baseline_xout123 import test as test_el
 from sklearn.model_selection import train_test_split
 from torch_geometric.loader import DataLoader
 
