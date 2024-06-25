@@ -18,7 +18,6 @@ import pandas as pd
 from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
 from mlxtend.plotting import plot_confusion_matrix
-import time
 import copy
 from elsage.el_sage_baseline_xout123 import GraphSAGE
 from elsage.el_sage_baseline_xout123 import train as train_el
@@ -183,11 +182,9 @@ def main():
     
     train_dataset, test_dataset = train_test_split(dataset, test_size=0.2, random_state=42)
     train_dataset, val_dataset = train_test_split(train_dataset, test_size=0.2, random_state=42)
-
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
-    
     data = data.to(device)
     
     gamora_model = SAGE_MULT(data.num_features, args.hidden_channels,
@@ -202,6 +199,7 @@ def main():
                  num_layers=args.num_layers,
                  dropout=args.dropout
                  ).to(device)
+
     optimizer = torch.optim.Adam(elsage_model.parameters(), args.learning_rate)#, weight_decay=5e-4)
     
     for args.epoch in range(1, args.epochs + 1):

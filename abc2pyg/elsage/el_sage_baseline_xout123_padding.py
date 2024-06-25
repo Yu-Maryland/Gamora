@@ -11,11 +11,10 @@ from torch_geometric.utils import to_undirected
 from torch_sparse import SparseTensor
 from sklearn.model_selection import train_test_split
 from torch.nn import Linear
-#from torch_geometric.loader import DataLoader
-from dataset_prep.dataloader_padding import DataLoader, Custom_Collater
-from dataset_prep.dataset_el_pyg import EdgeListDataset
+from torch_geometric.loader import DataLoader
+#from dataset_prep.dataloader_padding import DataLoader, Custom_Collater
+from dataset_prep.dataset_el_pyg_padding import EdgeListDataset
 import torch_geometric.transforms as T
-
 import wandb
 torch.manual_seed(0)
 def initialize_wandb(args):
@@ -47,11 +46,10 @@ class GraphSAGE(torch.nn.Module):
         for _ in range(num_layers - 2):
             self.convs.append(SAGEConv(hidden_dim, hidden_dim))
         self.convs.append(SAGEConv(hidden_dim, hidden_dim))
-        
         self.mlp1 = MLP([max_num_nodes, hidden_dim, 1],
                        norm=None, dropout=0.5) #instead of global_mean_pool
         self.bn = BatchNorm(hidden_dim)
-        self.fc = Linear(hidden_dim, hidden_dim)
+        #self.fc = Linear(hidden_dim, hidden_dim)
         self.mlp2 = MLP([hidden_dim, hidden_dim, out_dim],
                        norm=None, dropout=0.5)
 
@@ -61,18 +59,25 @@ class GraphSAGE(torch.nn.Module):
             x = conv(x, data.adj_t)
             x = F.relu(x)
             x = F.dropout(x, p=self.dropout) #torch.Size([58666, hidden_dim])
+        '''
+        x = global_mean_pool(x, data.batch) # torch.Size([batch, hidden_dim])
+        x = self.fc(x) # torch.Size([batch, hidden_dim])
+        '''
         
-        #x = global_mean_pool(x, data.batch) # torch.Size([batch, hidden_dim])
         x = x.reshape([-1,x.shape[1],self.max_num_nodes])
+        #x = x.permute(1,0) # if every batch size is the same [75, #]
+        #print(x.shape)
         x = self.mlp1(x).squeeze(2) #[32, 75]
-        #x = self.fc(x) # torch.Size([batch, hidden_dim])
-        x = self.bn(x)
+        #print(x.shape)
+        #x = self.bn(x)
         x = F.relu(x)
         x = self.mlp2(x)
         return x #torch.Size([batch, 16])
 
 
 def train(gamora_model, model, loader, optimizer, device, dataset):
+    import time
+    start_time = time.time()
     gamora_model.eval()
     model.train()
     total_loss = 0
@@ -86,7 +91,10 @@ def train(gamora_model, model, loader, optimizer, device, dataset):
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
+    print("--- Train time: %s seconds ---" % (time.time() - start_time))
+    start_time = time.time()
     train_acc, train_acc_all_bits = test(gamora_model, model, loader, device, dataset)
+    print("--- Test time: %s seconds ---" % (time.time() - start_time))
     return total_loss / len(loader), train_acc, train_acc_all_bits
 
 @torch.no_grad()
@@ -107,8 +115,6 @@ def test(gamora_model, model, loader, device, dataset):
         correct_all+= torch.eq(pred, data.y.reshape(-1, dataset.num_classes)).all(dim=1).sum().item()
         total += data.y.reshape(-1, dataset.num_classes).numel()
         total_all += len(torch.eq(pred, data.y.reshape(-1, dataset.num_classes)).all(dim=1))
-    print(total)
-    print(total_all)
     return correct / total, correct_all / total_all
 
 def main(args):
@@ -121,11 +127,14 @@ def main(args):
     train_dataset, test_dataset = train_test_split(dataset, test_size=0.2, random_state=42)
     train_dataset, val_dataset = train_test_split(train_dataset, test_size=0.2, random_state=42)
 
-    train_loader = DataLoader(dataset, train_dataset, batch_size=args.batch_size, shuffle=True)#, num_workers=4)
-    val_loader = DataLoader(dataset, val_dataset, batch_size=args.batch_size, shuffle=False)#, num_workers=4)
-    test_loader = DataLoader(dataset, test_dataset, batch_size=args.batch_size, shuffle=False)#, num_workers=4)
-    
-    max_num_nodes = Custom_Collater.find_max_num_nodes(dataset, dataset)
+    # train_loader = DataLoader(dataset, train_dataset, batch_size=args.batch_size, shuffle=True)#, num_workers=4)
+    # val_loader = DataLoader(dataset, val_dataset, batch_size=args.batch_size, shuffle=False)#, num_workers=4)
+    # test_loader = DataLoader(dataset, test_dataset, batch_size=args.batch_size, shuffle=False)#, num_workers=4)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+
+    max_num_nodes = dataset.find_max_num_nodes()
     
     model = GraphSAGE(in_dim=dataset[0].num_node_features, 
                  hidden_dim=args.hidden_dim, 

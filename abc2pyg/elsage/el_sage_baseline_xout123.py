@@ -15,7 +15,6 @@ from torch.nn import Linear
 from torch_geometric.loader import DataLoader
 import torch_geometric.transforms as T
 from dataset_prep.dataset_el_pyg import EdgeListDataset
-
 import wandb
 def initialize_wandb(args):
     if args.wandb:
@@ -64,7 +63,6 @@ class GraphSAGE(torch.nn.Module):
             x = bn(x)
             x = F.relu(x)
             x = F.dropout(x, p=self.dropout) #torch.Size([58666, hidden_dim])
-       
         x = global_mean_pool(x, data.batch) # torch.Size([batch, hidden_dim])
         x = self.fc(x) # torch.Size([batch, hidden_dim])
         x = F.relu(x)
@@ -73,6 +71,7 @@ class GraphSAGE(torch.nn.Module):
         return x #torch.Size([batch, 16])
 
 def train(gamora_model, model, loader, optimizer, device, dataset):
+    import time
     gamora_model.eval()
     model.train()
     total_loss = 0

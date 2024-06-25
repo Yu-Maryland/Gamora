@@ -11,6 +11,7 @@ from torch_geometric.data.on_disk_dataset import OnDiskDataset
 from torch_geometric.typing import TensorFrame, torch_frame
 from torch_sparse import SparseTensor
 from torch_geometric.data import Data
+from dataset_el_pyg import EdgeListDataset
 
 class Collater:
     def __init__(
@@ -147,3 +148,14 @@ class DataLoader(torch.utils.data.DataLoader):
             collate_fn=self.collator.collate_fn, # curie
             **kwargs,
         )
+
+def main():
+    dataset = EdgeListDataset(root = '/home/curie/masGen/DataGen/dataset16', highest_order = 16)
+    data_loader = DataLoader(dataset, dataset, batch_size=32, shuffle=True)
+    print(dataset[0])
+    print(dataset[1])
+    for batch in data_loader:
+        print(batch)
+        #DataBatch(x=[63808, 4], edge_index=[2, 62784], y=[512], adj_t=[63808, 63808, nnz=56624], batch=[63808], ptr=[33])
+if __name__ == "__main__":
+    main()

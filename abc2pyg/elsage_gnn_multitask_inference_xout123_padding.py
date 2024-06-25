@@ -8,8 +8,7 @@ from torch_geometric.data import Data
 import torch_geometric.transforms as T
 from torch_geometric.nn import SAGEConv, global_mean_pool, BatchNorm
 
-from dataset_prep import PygNodePropPredDataset, Evaluator, EdgeListDataset
-from dataset_prep.dataloader_padding import DataLoader, Custom_Collater
+#from dataset_prep import PygNodePropPredDataset, Evaluator, EdgeListDataset
 from logger import Logger
 from tqdm import tqdm
 import os
@@ -18,13 +17,14 @@ import pandas as pd
 from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
 from mlxtend.plotting import plot_confusion_matrix
-import time
 import copy
 from elsage.el_sage_baseline_xout123_padding import GraphSAGE
 from elsage.el_sage_baseline_xout123_padding import train as train_el
 from elsage.el_sage_baseline_xout123_padding import test as test_el
 from sklearn.model_selection import train_test_split
-#from torch_geometric.loader import DataLoader
+#from dataset_prep.dataloader_padding import DataLoader, Custom_Collater
+from dataset_prep.dataset_el_pyg_padding import EdgeListDataset
+from torch_geometric.loader import DataLoader
 from datetime import datetime
 
 import wandb
@@ -183,10 +183,19 @@ def main():
     
     train_dataset, test_dataset = train_test_split(dataset, test_size=0.2, random_state=42)
     train_dataset, val_dataset = train_test_split(train_dataset, test_size=0.2, random_state=42)
+    print(len(train_dataset))
+    print(len(val_dataset))
+    #Using custom dataloader
+    # train_loader = DataLoader(dataset, train_dataset, batch_size=args.batch_size, shuffle=True)
+    # val_loader = DataLoader(dataset, val_dataset, batch_size=args.batch_size, shuffle=False)
+    # test_loader = DataLoader(dataset, test_dataset, batch_size=args.batch_size, shuffle=False)
 
-    train_loader = DataLoader(dataset, train_dataset, batch_size=args.batch_size, shuffle=True)
-    val_loader = DataLoader(dataset, val_dataset, batch_size=args.batch_size, shuffle=False)
-    test_loader = DataLoader(dataset, test_dataset, batch_size=args.batch_size, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+    # for batch in val_loader:
+    #     print(batch)
+    
     
     data = data.to(device)
     
@@ -194,7 +203,8 @@ def main():
                      3, args.num_layers,
                      args.dropout).to(device)
     gamora_model.load_state_dict(torch.load(args.model_path))
-    max_num_nodes = Custom_Collater.find_max_num_nodes(dataset, dataset)
+    max_num_nodes = dataset.find_max_num_nodes()
+    print(max_num_nodes)
     elsage_model = GraphSAGE(in_dim=13,#dataset[0].num_node_features, #9 for gamora_output
                  hidden_dim=args.hidden_dim, 
                  out_dim=dataset.num_classes,
@@ -203,7 +213,6 @@ def main():
                  dropout=args.dropout
                  ).to(device)
     optimizer = torch.optim.Adam(elsage_model.parameters(), args.learning_rate)#, weight_decay=5e-4d
-    
     for epoch in range(1, args.epochs + 1):
         loss, train_acc, train_all_bits = train_el(gamora_model, elsage_model, train_loader, optimizer, device, dataset)
         if epoch % 1 == 0:
@@ -214,7 +223,7 @@ def main():
             print(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, Train Acc: {train_acc:.4f}, Val Acc: {val_acc:.4f}, Test Acc: {test_acc:.4f}, Train acc all bits: {train_all_bits:.4f}, Val acc all bits: {val_acc_all_bits:.4f}, Test acc all bits: {test_acc_all_bits:.4f}')
             
     #save checkpoint
-    current_time = datetime.now().strftime('%m-%d-%Y_%H-%M-%S')
+    current_time = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     model_path = f'models/model_xout123_padding_{current_time}.pt'
     torch.save(elsage_model.state_dict(), model_path)
     print(f'Model saved to {model_path}')

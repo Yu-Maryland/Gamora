@@ -8,12 +8,15 @@ from torch_sparse import SparseTensor
 from typing import List
 from torch_geometric.loader import DataLoader
 #from loader.dataloader import DataLoader
+from tqdm import tqdm
 
 class EdgeListDataset(InMemoryDataset):
     def __init__(self, root, transform=None, pre_transform=None, highest_order = 16):
         self.highest_order = highest_order
         super(EdgeListDataset, self).__init__(root, transform, pre_transform, highest_order)
         self.data, self.slices = torch.load(self.processed_paths[0])
+        #self.max_num_nodes = 0
+        print(self.data is not None)
     '''
             - root (str): root directory to store the dataset folder
             - transform, pre_transform (optional): transform/pre-transform graph objects
@@ -29,17 +32,19 @@ class EdgeListDataset(InMemoryDataset):
 
     @property
     def processed_file_names(self):
-        return ['data.pt']
+        return ['data_padding.pt']
     
     def process(self):
-        data_list = []
-
+        if not os.path.exists(self.processed_paths[0]):
+            self.max_num_nodes = self.find_max_num_nodes()
+        padded_data_list = []
         root_folders = sorted(os.listdir(self.root))
-        for data_name in root_folders:
+        print(f'Padding data')
+        for data_name in tqdm(root_folders):
             if 'processed' in data_name:
                 pass
             else:
-                print(data_name)
+                #_ = self.find_max_num_nodes()
                 folder = os.path.join(self.root, data_name)
                 bprimtive_path = os.path.join(folder, 'bprimtive')
                 mas_el_path = os.path.join(folder, 'Mas'+str(self.highest_order)+'.el')
@@ -72,27 +77,55 @@ class EdgeListDataset(InMemoryDataset):
                 # Convert x_dict to a tensor
                 num_nodes = edge_index.max().item() + 1
                 x = torch.full((num_nodes, 4), 50).float()  # Initialize with 50
-                
                 for node, features in node_feat.items():
                     x[node-1] = torch.tensor(features).float()
-                
-                # # Check for any uninitialized values
-                #if torch.isnan(x).any():
-                # if 50 in x:
-                #     raise ValueError("Uninitialized node features found in x tensor")
-                
-                # Create Data object
-                #num_nodes = edge_index.max().item() + 1
+                    
+                pad_size = self.max_num_nodes - num_nodes
+                # Pad node features
+                x_padded = torch.cat([x, torch.full((pad_size, x.size(1)), 50.0)], dim=0)
+                # Pad edge indices
+                edge_index_padded = edge_index
+                edge_index_padded = torch.cat([edge_index_padded, torch.tensor([[num_nodes + i, num_nodes + i] for i in range(pad_size)], dtype=torch.long).t().contiguous()], dim=1)
+                # Pad adjacency matrix
                 adj_t = SparseTensor.from_edge_index(edge_index)
-                data = Data(edge_index=edge_index, y=y, x=x, adj_t=adj_t)
-                data = data if self.pre_transform is None else self.pre_transform(data)
-                data_list.append(data)
+                adj_t_padded = adj_t.to_dense()
+                adj_t_padded = torch.nn.functional.pad(adj_t_padded, (0, pad_size, 0, pad_size), value=0)
+                adj_t_padded = SparseTensor.from_dense(adj_t_padded)
+                padded_data = Data(x=x_padded, edge_index=edge_index_padded, y=y, adj_t=adj_t_padded)
+                padded_data_list.append(padded_data)
 
-        data, slices = self.collate(data_list)
+        data, slices = self.collate(padded_data_list)
         torch.save((data, slices), self.processed_paths[0])
-
+        print(f'Saved padded data in {self.processed_paths[0]}')
+    
+    def find_max_num_nodes(self):
+        root_folders = sorted(os.listdir(self.root))
+        max_num_nodes = 0
+        print(f'Calculating max_num_nodes')
+        for data_name in tqdm(root_folders):
+            if 'processed' in data_name:
+                pass
+            else:
+                folder = os.path.join(self.root, data_name)
+                mas_el_path = os.path.join(folder, 'Mas'+str(self.highest_order)+'.el')
+                edge_index = []
+                with open(mas_el_path, 'r') as f:
+                    f.readline()
+                    for line in f:
+                        u, v, _, _ = line.strip().split()
+                        u, v = int(u)-1, int(v)-1 # Convert to zero-based index
+                        edge_index.append([u, v])
+                edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+                # Convert x_dict to a tensor
+                num_nodes = edge_index.max().item() + 1
+                if num_nodes > max_num_nodes:
+                    max_num_nodes = num_nodes
+        self.max_num_nodes = max_num_nodes
+        print(f'Finished! max_num_nodes: {max_num_nodes}')
+        return max_num_nodes
+    
 if __name__ == '__main__':
-    dataset = EdgeListDataset(root = '/home/curie/ELGraphSAGE/dataset/edgelist', highest_order = 16) #, transform=T.ToSparseTensor())
+    dataset = EdgeListDataset(root = '/home/curie/masGen/DataGen/dataset16', highest_order = 16) #, transform=T.ToSparseTensor())
     print(dataset[0])
     print(dataset[1])
     '''
