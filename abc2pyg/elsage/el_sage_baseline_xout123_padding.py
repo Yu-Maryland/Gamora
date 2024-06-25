@@ -63,12 +63,8 @@ class GraphSAGE(torch.nn.Module):
         x = global_mean_pool(x, data.batch) # torch.Size([batch, hidden_dim])
         x = self.fc(x) # torch.Size([batch, hidden_dim])
         '''
-        
         x = x.reshape([-1,x.shape[1],self.max_num_nodes])
-        #x = x.permute(1,0) # if every batch size is the same [75, #]
-        #print(x.shape)
         x = self.mlp1(x).squeeze(2) #[32, 75]
-        #print(x.shape)
         x = self.bn(x)
         x = F.relu(x)
         x = self.mlp2(x)
