@@ -69,7 +69,7 @@ class GraphSAGE(torch.nn.Module):
         #print(x.shape)
         x = self.mlp1(x).squeeze(2) #[32, 75]
         #print(x.shape)
-        #x = self.bn(x)
+        x = self.bn(x)
         x = F.relu(x)
         x = self.mlp2(x)
         return x #torch.Size([batch, 16])
