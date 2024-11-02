@@ -467,8 +467,8 @@ class DatasetSaver(object):
         meta_dict['add_inverse_edge'] = 'False'
         meta_dict['has_node_attr'] = str(self.has_node_attr)
         meta_dict['has_edge_attr'] = str(self.has_node_attr)
-        meta_dict['additional node files'] = 'None'
-        meta_dict['additional edge files'] = 'None'
+        meta_dict['additional node files'] = 'NONE'
+        meta_dict['additional edge files'] = 'NONE'
         meta_dict['is hetero'] = str(self.is_hetero)
 
         # save meta-dict for submission

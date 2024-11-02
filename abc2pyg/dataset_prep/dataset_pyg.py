@@ -131,12 +131,12 @@ class PygNodePropPredDataset(InMemoryDataset):
     def process(self):
         add_inverse_edge = self.meta_info['add_inverse_edge'] == 'True'
 
-        if self.meta_info['additional node files'] == 'None':
+        if self.meta_info['additional node files'] == 'NONE':
             additional_node_files = []
         else:
             additional_node_files = self.meta_info['additional node files'].split(',')
 
-        if self.meta_info['additional edge files'] == 'None':
+        if self.meta_info['additional edge files'] == 'NONE':
             additional_edge_files = []
         else:
             additional_edge_files = self.meta_info['additional edge files'].split(',')
