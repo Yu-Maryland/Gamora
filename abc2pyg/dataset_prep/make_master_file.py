@@ -24,8 +24,8 @@ def make_master(design_name, num_class=5, new = 0):
         dataset_dict[name]['has_node_attr'] = True
         dataset_dict[name]['has_edge_attr'] = False
         dataset_dict[name]['split'] = 'Random'
-        dataset_dict[name]['additional node files'] = 'None'
-        dataset_dict[name]['additional edge files'] = 'None'
+        dataset_dict[name]['additional node files'] = 'NONE'
+        dataset_dict[name]['additional edge files'] = 'NONE'
         dataset_dict[name]['is hetero'] = False
         dataset_dict[name]['binary'] = False
             
@@ -42,8 +42,8 @@ def make_master(design_name, num_class=5, new = 0):
         dataset_dict[name]['has_node_attr'] = True
         dataset_dict[name]['has_edge_attr'] = False
         dataset_dict[name]['split'] = 'Random'
-        dataset_dict[name]['additional node files'] = 'None'
-        dataset_dict[name]['additional edge files'] = 'None'
+        dataset_dict[name]['additional node files'] = 'NONE'
+        dataset_dict[name]['additional edge files'] = 'NONE'
         dataset_dict[name]['is hetero'] = False
         dataset_dict[name]['binary'] = False
 
